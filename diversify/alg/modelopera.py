@@ -48,4 +48,3 @@ def accuracy(model, loader, weights=None):
             correct += ((pred_labels == y).float() * batch_weights).sum().item()
             total += batch_weights.sum().item()
     return correct / total
-
