@@ -134,10 +134,13 @@ def get_args():
     parser.add_argument('--max_epoch', type=int, default=1)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--output', type=str, default='./data/train_output/')
-    parser.add_argument('--layer', type=str, default='ln')  # LayerNorm safe for GNN
+    parser.add_argument('--layer', type=str, default='ln')
     parser.add_argument('--use_gnn', action='store_true')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--steps_per_epoch', type=int, default=100)  # ✅ ADD THIS LINE
     args = parser.parse_args()
+    return args
+
 
     # Add missing defaults that caused previous errors
     args.act_people = {
