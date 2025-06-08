@@ -44,16 +44,12 @@ class Diversify(Algorithm):
 
     def extract_features(self, x):
         if self.use_gnn:
-            # Ensure x is [B, C, T]
-            if x.dim() == 4:
-                B, C, _, T = x.shape
-                x = x.squeeze(2)  # [B, C, T]
-            elif x.dim() == 3:
-                B, C, T = x.shape
-            else:
-                raise ValueError(f"Unexpected input shape to GNN encoder: {x.shape}")
+            # Remove all singleton dims: [160, 8, 1, 1, 200] → [160, 8, 200]
+            x = x.squeeze()
+            if x.dim() != 3:
+                raise ValueError(f"Unexpected input shape after squeezing: {x.shape}")
 
-            # Rearrange to [B, T, C]
+            B, C, T = x.shape
             x = x.permute(0, 2, 1)  # [B, T, C]
 
             out_list = []
@@ -67,7 +63,6 @@ class Diversify(Algorithm):
             return torch.stack(out_list)  # [B, output_dim]
         else:
             return self._base_featurizer(x)
-
 
 
     def update_d(self, minibatch, opt):
