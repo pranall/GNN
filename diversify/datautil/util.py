@@ -50,7 +50,7 @@ class combindataset(Dataset):
         if self.transform:
             x = self.transform(x)
         x = torch.tensor(x).float()
-        x = x.unsqueeze(1)  # Shape: (C, 1, T)
+        x = x.unsqueeze(1)  # (C, 1, T)
         c = self.c[index]
         p = self.p[index]
         s = self.s[index]
@@ -95,9 +95,10 @@ def print_environ():
     print("Environment:")
     try:
         import PIL
+        import torchvision
         print(f"\tPython: {'.'.join(map(str, list(map(int, list(torch.__version__.split('+')[0].split('.'))))))}")
         print(f"\tPyTorch: {torch.__version__}")
-        print(f"\tTorchvision: {__import__('torchvision').__version__}")
+        print(f"\tTorchvision: {torchvision.__version__}")
         print(f"\tCUDA: {torch.version.cuda}")
         print(f"\tCUDNN: {torch.backends.cudnn.version()}")
         print(f"\tNumPy: {np.__version__}")
@@ -106,11 +107,7 @@ def print_environ():
         print(f"\tError fetching environment details: {e}")
 
 def train_valid_target_eval_names(args):
-    return {
-        'train': 0,
-        'valid': 1,
-        'target': 2
-    }
+    return {'train': 0, 'valid': 1, 'target': 2}
 
 def alg_loss_dict(args):
     return ['class', 'dis']
@@ -137,7 +134,42 @@ def get_args():
     parser.add_argument('--max_epoch', type=int, default=1)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--output', type=str, default='./data/train_output/')
-    parser.add_argument('--layer', type=str, default='ln')  # default to LayerNorm for GNN
+    parser.add_argument('--layer', type=str, default='ln')  # LayerNorm safe for GNN
     parser.add_argument('--use_gnn', action='store_true')
+    parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
+
+    # Add missing defaults that caused previous errors
+    args.act_people = {
+        'emg': [
+            [0, 1, 2, 3, 4, 5, 6, 7, 8],
+            [9, 10, 11, 12, 13, 14, 15, 16, 17],
+            [18, 19, 20, 21, 22, 23, 24, 25, 26],
+            [27, 28, 29, 30, 31, 32, 33, 34, 35]
+        ]
+    }
+
+    args.select_position = {'emg': [0]}
+    args.select_channel = {'emg': np.array([0, 1, 2, 3, 4, 5, 6, 7])}
+    args.hz_list = {'emg': 1000}
+    args.num_classes = 6
+    args.input_shape = (8, 1, 200)
+    args.grid_size = 10
+
     return args
+
+Nmax = {
+    'emg': 36,
+    'pamap': 10,
+    'dsads': 8
+}
+
+class mydataset:
+    def __init__(self, args):
+        self.args = args
+        self.x, self.labels, self.dlabels, self.pclabels = loaddata_from_numpy(
+            dataset=args.dataset,
+            task=args.task,
+            root_dir=args.data_dir
+        )
+        self.pdlabels = None
