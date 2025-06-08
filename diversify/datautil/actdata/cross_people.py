@@ -9,59 +9,43 @@ import torch
 
 class ActList(mydataset):
     def __init__(
-        self, args, dataset, root_dir, people_group, group_num, 
-        transform=None, target_transform=None, pclabels=None, pdlabels=None, shuffle_grid=True
+        self, args, dataset, root_dir, people_group, group_num,
+        transform=None, target_transform=None, pclabels=None, pdlabels=None,
+        shuffle_grid=True, use_gnn=False  # ✅ New flag
     ):
         super(ActList, self).__init__(args)
         self.dataset = dataset
         self.task = 'cross_people'
         self.transform = transform
         self.target_transform = target_transform
+        self.use_gnn = use_gnn  # ✅ Store GNN usage flag
 
-        # Load raw data: x = features, cy = class labels, py = person ids, sy = session ids
+        # Load raw data
         x, cy, py, sy = loaddata_from_numpy(self.dataset, self.task, root_dir)
 
         self.p = py  # person IDs
         self.s = sy  # session IDs
-
         self.people_group = people_group
         self.position = np.sort(np.unique(sy))
 
-        # Combine data according to people group and position
         self.comb_position(x, cy, py, sy)
 
-        # Reshape x to (samples, channels, 1, sequence_length)
         self.x = self.x[:, :, np.newaxis, :]
-
-        # Convert to torch tensor for model input
         self.x = torch.tensor(self.x).float()
-
-        # Set labels attribute c to combined labels for easier access
         self.c = self.labels
 
-        # Initialize pclabels and pdlabels with defaults if None
         n_samples = len(self.labels)
-        if pclabels is not None:
-            self.pclabels = pclabels
-        else:
-            self.pclabels = np.ones(n_samples) * (-1)
-
-        if pdlabels is not None:
-            self.pdlabels = pdlabels
-        else:
-            self.pdlabels = np.ones(n_samples) * 0
+        self.pclabels = pclabels if pclabels is not None else np.ones(n_samples) * (-1)
+        self.pdlabels = pdlabels if pdlabels is not None else np.ones(n_samples) * 0
 
         self.tdlabels = np.ones(n_samples) * group_num
         self.dlabels = np.ones(n_samples) * (group_num - Nmax[args.dataset])
 
     def comb_position(self, x, cy, py, sy):
-        # Combine data samples based on people group and session position
         for i, peo in enumerate(self.people_group):
-            # Select data for person 'peo'
             idx_peo = np.where(py == peo)[0]
             tx, tcy, tsy = x[idx_peo], cy[idx_peo], sy[idx_peo]
 
-            # Combine across sessions
             for j, sen in enumerate(self.position):
                 idx_sen = np.where(tsy == sen)[0]
                 if j == 0:
@@ -73,7 +57,6 @@ class ActList(mydataset):
             if i == 0:
                 self.x, self.labels = ttx, ttcy
             else:
-                # Stack vertically (rows) for data and horizontally (1D) for labels
                 self.x = np.vstack((self.x, ttx))
                 self.labels = np.hstack((self.labels, ttcy))
 
@@ -84,11 +67,31 @@ class ActList(mydataset):
         return len(self.x)
 
     def __getitem__(self, index):
-        # Allow dataset to be indexed: return (data, label)
         sample = self.x[index]
         label = self.c[index]
+        person = self.pclabels[index]
+        domain = self.dlabels[index]
+        cls_label = self.c[index]
+        pd_label = self.pdlabels[index]
+
         if self.transform:
             sample = self.transform(sample)
         if self.target_transform:
             label = self.target_transform(label)
-        return sample, label
+
+        if self.use_gnn:
+            edge_indices = self.generate_edge_index(sample)
+            return sample, label, domain, cls_label, pd_label, index, edge_indices
+        else:
+            return sample, label, domain, cls_label, pd_label, index
+
+    def generate_edge_index(self, x):
+        """
+        Dummy edge index generator.
+        You can replace this with a real adjacency graph based on x.
+        """
+        num_nodes = x.shape[0] if x.dim() == 2 else x.shape[1]
+        return torch.stack([
+            torch.arange(num_nodes).repeat_interleave(num_nodes),
+            torch.arange(num_nodes).repeat(num_nodes)
+        ])
