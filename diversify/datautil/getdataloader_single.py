@@ -46,22 +46,18 @@ def get_dataloader(args, tr, val, tar):
 
 
 def get_act_dataloader(args):
-    # Ensure N_WORKERS attribute exists (set to 4 if missing)
     if not hasattr(args, 'N_WORKERS'):
         args.N_WORKERS = 4
 
-    # Initialize steps_per_epoch with a large number
     args.steps_per_epoch = float('inf')
 
     source_datasetlist = []
     target_datalist = []
 
-    # Get the task-specific module, e.g. cross_people
     pcross_act = task_act[args.task]
     tmpp = args.act_people[args.dataset]
     args.domain_num = len(tmpp)
 
-    # Iterate over domain splits (people groups)
     for i, item in enumerate(tmpp):
         tdata = pcross_act.ActList(
             args,
@@ -76,19 +72,18 @@ def get_act_dataloader(args):
         else:
             source_datasetlist.append(tdata)
 
-            # Calculate steps per epoch as the min over source datasets
             steps = len(tdata) / args.batch_size
             if steps < args.steps_per_epoch:
                 args.steps_per_epoch = steps
 
-    # Reserve a fraction of data for validation
     val_rate = 0.2
     args.steps_per_epoch = int(args.steps_per_epoch * (1 - val_rate))
 
-    # Merge all source datasets into one combined dataset
+    # Combine source datasets - convert .x from tensor to numpy before concatenation
     x_list, c_list, p_list, s_list = [], [], [], []
     for ds in source_datasetlist:
-        x_list.append(ds.x)
+        # Convert tensors to numpy arrays
+        x_list.append(ds.x.cpu().numpy() if torch.is_tensor(ds.x) else ds.x)
         c_list.append(ds.c)
         p_list.append(ds.p)
         s_list.append(ds.s)
@@ -100,7 +95,6 @@ def get_act_dataloader(args):
 
     combined_source_dataset = combindataset(args, x, c, p, s)
 
-    # Shuffle and split combined source dataset into train and validation subsets
     total_len = len(combined_source_dataset)
     indices = np.arange(total_len)
     np.random.seed(args.seed)
@@ -112,10 +106,10 @@ def get_act_dataloader(args):
     train_subset = subdataset(args, combined_source_dataset, train_indices)
     val_subset = subdataset(args, combined_source_dataset, val_indices)
 
-    # Merge target datasets into one combined dataset
+    # Combine target datasets similarly
     x_list, c_list, p_list, s_list = [], [], [], []
     for ds in target_datalist:
-        x_list.append(ds.x)
+        x_list.append(ds.x.cpu().numpy() if torch.is_tensor(ds.x) else ds.x)
         c_list.append(ds.c)
         p_list.append(ds.p)
         s_list.append(ds.s)
@@ -127,7 +121,6 @@ def get_act_dataloader(args):
 
     combined_target_dataset = combindataset(args, x, c, p, s)
 
-    # Create DataLoaders for train, val, and target datasets
     train_loader, train_loader_noshuffle, valid_loader, target_loader = get_dataloader(
         args, train_subset, val_subset, combined_target_dataset
     )
