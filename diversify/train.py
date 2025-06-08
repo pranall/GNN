@@ -157,11 +157,11 @@ if __name__ == '__main__':
     args.dis_hidden = 128
     args.classifier = 'linear'
 
+    # Add missing args with defaults if not present
     if not hasattr(args, 'lr_decay2'):
         args.lr_decay2 = 0.1
     if not hasattr(args, 'lr_decay1'):
         args.lr_decay1 = 0.01
-
     if not hasattr(args, 'weight_decay'):
         args.weight_decay = 0.0005
     if not hasattr(args, 'beta1'):
