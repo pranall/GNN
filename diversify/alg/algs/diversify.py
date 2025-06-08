@@ -44,29 +44,20 @@ class Diversify(Algorithm):
 
     def extract_features(self, x):
         if self.use_gnn:
-            # Handle cases like (B, C, 1, 1, T)
-            if x.ndim == 5 and x.shape[2] == 1 and x.shape[3] == 1:
-                x = x.squeeze(2).squeeze(2)  # -> (B, C, T)
-
-            if x.ndim == 4 and x.shape[2] == 1:  # (B, C, 1, T)
-                B, C, _, T = x.shape
-                x = x.squeeze(2).permute(0, 2, 1)  # [B, T, C]
-            elif x.ndim == 3:  # (B, C, T)
-                B, C, T = x.shape
-                x = x.permute(0, 2, 1)  # [B, T, C]
-            else:
-                raise ValueError(f"Unexpected input shape: {x.shape}")
+            B, C, _, T = x.shape  # e.g. [160, 8, 1, 200]
+            x = x.squeeze(2).permute(0, 2, 1)  # [B, T, C] = [160, 200, 8]
 
             out_list = []
-            for i in range(x.shape[0]):
-                sample = x[i]  # [T, C]
-                edge_index = build_correlation_graph(sample.cpu().numpy(), threshold=0.3).to(sample.device)
-                gnn_out = self._base_featurizer(sample.unsqueeze(0), edge_index, batch_size=1)
+            for i in range(B):
+                sample = x[i]  # [T=200, C=8]
+                edge_index = build_correlation_graph(sample.cpu().numpy(), threshold=0.3).cuda()
+
+                gnn_out = self._base_featurizer(sample.cuda(), edge_index, batch_size=1)
                 out_list.append(gnn_out)
-            return torch.stack(out_list)
+
+            return torch.stack(out_list)  # [B, output_dim]
         else:
             return self._base_featurizer(x)
-
 
 
     def update_d(self, minibatch, opt):
