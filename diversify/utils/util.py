@@ -137,12 +137,11 @@ def get_args():
     parser.add_argument('--layer', type=str, default='ln')
     parser.add_argument('--use_gnn', action='store_true')
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--steps_per_epoch', type=int, default=100)  # ✅ ADD THIS LINE
+    parser.add_argument('--steps_per_epoch', type=int, default=100)
+
     args = parser.parse_args()
-    return args
 
-
-    # Add missing defaults that caused previous errors
+    # ✅ Add custom defaults required by the repo
     args.act_people = {
         'emg': [
             [0, 1, 2, 3, 4, 5, 6, 7, 8],
@@ -151,7 +150,6 @@ def get_args():
             [27, 28, 29, 30, 31, 32, 33, 34, 35]
         ]
     }
-
     args.select_position = {'emg': [0]}
     args.select_channel = {'emg': np.array([0, 1, 2, 3, 4, 5, 6, 7])}
     args.hz_list = {'emg': 1000}
@@ -160,6 +158,7 @@ def get_args():
     args.grid_size = 10
 
     return args
+
 
 Nmax = {
     'emg': 36,
