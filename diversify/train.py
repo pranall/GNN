@@ -156,4 +156,11 @@ if __name__ == '__main__':
     args.bottleneck = 256
     args.dis_hidden = 128
     args.classifier = 'linear'
+
+    # Set default learning rate decays if missing
+    if not hasattr(args, 'lr_decay2'):
+        args.lr_decay2 = 0.1
+    if not hasattr(args, 'lr_decay1'):
+        args.lr_decay1 = 0.01
+
     main(args)
