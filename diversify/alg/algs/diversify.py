@@ -43,18 +43,27 @@ class Diversify(Algorithm):
         self.discriminator = Adver_network.Discriminator(args.bottleneck, args.dis_hidden, args.latent_domain_num)
 
     def extract_features(self, x):
-        if self.use_gnn:
+    if self.use_gnn:
+        # Handle both (B, C, 1, T) and (B, C, T)
+        if x.ndim == 4:
             B, C, _, T = x.shape
-            x = x.squeeze(2).permute(0, 2, 1)  # shape [B, T, C]
-            out_list = []
-            for i in range(B):
-                sample = x[i]
-                edge_index = build_correlation_graph(sample.cpu().numpy(), threshold=0.3).cuda()
-                gnn_out = self._base_featurizer(sample.cuda(), edge_index, batch_size=1)
-                out_list.append(gnn_out)
-            return torch.stack(out_list)
+            x = x.squeeze(2).permute(0, 2, 1)  # [B, T, C]
+        elif x.ndim == 3:
+            B, C, T = x.shape
+            x = x.permute(0, 2, 1)  # [B, T, C]
         else:
-            return self._base_featurizer(x)
+            raise ValueError(f"Unexpected input shape: {x.shape}")
+
+        out_list = []
+        for i in range(B):
+            sample = x[i]
+            edge_index = build_correlation_graph(sample.cpu().numpy(), threshold=0.3).to(sample.device)
+            gnn_out = self._base_featurizer(sample.unsqueeze(0), edge_index, batch_size=1)
+            out_list.append(gnn_out)
+        return torch.stack(out_list)
+    else:
+        return self._base_featurizer(x)
+
 
     def update_d(self, minibatch, opt):
         all_x1 = minibatch[0].cuda().float()
