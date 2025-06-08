@@ -154,5 +154,6 @@ if __name__ == '__main__':
     args.use_gnn = True
     args.layer = 'ln'
     args.bottleneck = 256
-    args.dis_hidden = 128 
+    args.dis_hidden = 128
+    args.classifier = 'linear'
     main(args)
