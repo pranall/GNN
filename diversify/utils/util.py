@@ -73,27 +73,30 @@ class combindataset(Dataset):
         return torch.stack([src, dst], dim=0)  # Shape: [2, num_edges]
 
 
+
+
 class subdataset(Dataset):
-    def __init__(self, args, dataset, indices, transform=None):
+    def __init__(self, args, dataset, indexs):
         self.args = args
         self.dataset = dataset
-        self.indices = np.array(indices, dtype=np.int64)
-        self.transform = transform
-        self.pdlabels = dataset.pdlabels[indices]
+        self.indexs = indexs
+        self.labels_dict = {}  # <-- Add this to hold dynamically assigned labels
+
+    def __getitem__(self, item):
+        x, c, p, s = self.dataset[self.indexs[item]]
+
+        # Default to -1 if no prediction exists yet
+        pdlabel = self.labels_dict.get(self.indexs[item], -1)
+
+        return x, c, p, s, pdlabel, self.indexs[item]
 
     def __len__(self):
-        return len(self.indices)
+        return len(self.indexs)
 
-    def __getitem__(self, idx):
-        real_idx = self.indices[idx]
-        data = self.dataset[real_idx]
+    def set_labels_by_index(self, pred_labels, indexs, label_type='pdlabel'):
+        for idx, label in zip(indexs, pred_labels):
+            self.labels_dict[idx] = label
 
-        if self.args.use_gnn:
-            x, c, p, s, pdlabel, _, edge_indices = data
-            return x, c, p, s, pdlabel, real_idx, edge_indices
-        else:
-            x, c, p, s, pdlabel, _ = data
-            return x, c, p, s, pdlabel, real_idx
 
 
 # ==== General training utility ====
