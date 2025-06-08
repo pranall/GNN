@@ -9,7 +9,6 @@ import numpy as np
 from torchvision import transforms
 from torch.utils.data import Dataset
 
-
 # ==== Data utility ====
 
 def act_train():
@@ -27,39 +26,52 @@ def loaddata_from_numpy(dataset='dsads', task='cross_people', root_dir='./data/a
     cy, py, sy = ty[:, 0], ty[:, 1], ty[:, 2]
     return x, cy, py, sy
 
-
-class subdataset(Dataset):
-    def __init__(self, dataset, indices, transform=None):
-        indices = torch.LongTensor(indices)
-        self.x = dataset.x[indices]
-        self.labels = dataset.labels[indices]
-        self.dlabels = dataset.dlabels[indices] if dataset.dlabels is not None else None
-        self.pclabels = dataset.pclabels[indices] if dataset.pclabels is not None else None
-        self.pdlabels = dataset.pdlabels[indices] if dataset.pdlabels is not None else None
-        self.index = indices
+class combindataset(Dataset):
+    def __init__(self, args, x, c, p, s, transform=None):
+        self.args = args
+        self.x = x
+        self.c = c
+        self.p = p
+        self.s = s
         self.transform = transform
+        self.length = len(x)
+        self.pdlabels = np.zeros(len(x), dtype=np.int64)
+        self.indices = np.arange(len(x))
 
-    def __getitem__(self, i):
-        x = self.x[i]
-        if self.transform:
-            x = self.transform(x)
-        label = self.labels[i]
-        dlabel = self.dlabels[i] if self.dlabels is not None else -1
-        pclabel = self.pclabels[i] if self.pclabels is not None else -1
-        pdlabel = self.pdlabels[i] if self.pdlabels is not None else -1
-        return x, label, dlabel, pclabel, pdlabel, self.index[i]
+    def set_labels_by_index(self, labels, index, mode='pdlabel'):
+        if mode == 'pdlabel':
+            self.pdlabels[index] = labels
 
     def __len__(self):
-        return len(self.labels)
+        return self.length
 
-    def set_labels_by_index(self, tlabels, tindex, type='pdlabel'):
-        tindex = torch.LongTensor(tindex)
-        if type == 'pdlabel':
-            self.pdlabels[tindex] = tlabels
-        elif type == 'pclabel':
-            self.pclabels[tindex] = tlabels
-        elif type == 'dlabel':
-            self.dlabels[tindex] = tlabels
+    def __getitem__(self, index):
+        x = self.x[index]
+        if self.transform:
+            x = self.transform(x)
+        x = torch.tensor(x).float()
+        x = x.unsqueeze(1)  # Shape: (C, 1, T)
+        c = self.c[index]
+        p = self.p[index]
+        s = self.s[index]
+        pdlabel = self.pdlabels[index]
+        return x, c, p, s, pdlabel, index
+
+class subdataset(Dataset):
+    def __init__(self, args, dataset, indices, transform=None):
+        self.args = args
+        self.dataset = dataset
+        self.indices = np.array(indices, dtype=np.int64)
+        self.transform = transform
+        self.pdlabels = dataset.pdlabels[indices]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        real_idx = self.indices[idx]
+        x, c, p, s, pdlabel, _ = self.dataset[real_idx]
+        return x, c, p, s, pdlabel, real_idx
 
 # ==== General training utility ====
 
@@ -81,11 +93,17 @@ def print_row(row, colwidth=10, latex=False):
 
 def print_environ():
     print("Environment:")
-    print(f"\tPython: {'.'.join(map(str, list(map(int, list(torch.__version__.split('+')[0].split('.')))))}")
-    print(f"\tPyTorch: {torch.__version__}")
-    print(f"\tCUDA: {torch.version.cuda}")
-    print(f"\tCUDNN: {torch.backends.cudnn.version()}")
-    print(f"\tNumPy: {np.__version__}")
+    try:
+        import PIL
+        print(f"\tPython: {'.'.join(map(str, list(map(int, list(torch.__version__.split('+')[0].split('.'))))))}")
+        print(f"\tPyTorch: {torch.__version__}")
+        print(f"\tTorchvision: {__import__('torchvision').__version__}")
+        print(f"\tCUDA: {torch.version.cuda}")
+        print(f"\tCUDNN: {torch.backends.cudnn.version()}")
+        print(f"\tNumPy: {np.__version__}")
+        print(f"\tPIL: {PIL.__version__}")
+    except Exception as e:
+        print(f"\tError fetching environment details: {e}")
 
 def train_valid_target_eval_names(args):
     return {
