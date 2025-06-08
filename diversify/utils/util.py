@@ -37,6 +37,7 @@ class combindataset(Dataset):
         self.length = len(x)
         self.pdlabels = np.zeros(len(x), dtype=np.int64)
         self.indices = np.arange(len(x))
+        self.use_gnn = args.use_gnn  # ✅ GNN toggle
 
     def set_labels_by_index(self, labels, index, mode='pdlabel'):
         if mode == 'pdlabel':
@@ -49,13 +50,28 @@ class combindataset(Dataset):
         x = self.x[index]
         if self.transform:
             x = self.transform(x)
-        x = torch.tensor(x).float()
-        x = x.unsqueeze(1)  # (C, 1, T)
+        x = torch.tensor(x).float().unsqueeze(1)  # Shape: (C, 1, T)
         c = self.c[index]
         p = self.p[index]
         s = self.s[index]
         pdlabel = self.pdlabels[index]
-        return x, c, p, s, pdlabel, index
+
+        if self.use_gnn:
+            edge_indices = self.generate_edge_index(x)
+            return x, c, p, s, pdlabel, index, edge_indices  # ✅ 7 items
+        else:
+            return x, c, p, s, pdlabel, index  # ✅ 6 items
+
+    def generate_edge_index(self, x):
+        """
+        Simple full-connected graph over channels (C nodes).
+        Input shape: (C, 1, T)
+        """
+        num_nodes = x.shape[0]  # Usually 8 for EMG
+        src = torch.arange(num_nodes).repeat_interleave(num_nodes)
+        dst = torch.arange(num_nodes).repeat(num_nodes)
+        return torch.stack([src, dst], dim=0)  # Shape: [2, num_edges]
+
 
 class subdataset(Dataset):
     def __init__(self, args, dataset, indices, transform=None):
