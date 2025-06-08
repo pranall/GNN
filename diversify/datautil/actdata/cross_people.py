@@ -73,6 +73,7 @@ class ActList(mydataset):
         domain = self.dlabels[index]
         cls_label = self.c[index]
         pd_label = self.pdlabels[index]
+        index_tensor = torch.tensor(index)  
 
         if self.transform:
             sample = self.transform(sample)
@@ -81,17 +82,23 @@ class ActList(mydataset):
 
         if self.use_gnn:
             edge_indices = self.generate_edge_index(sample)
-            return sample, label, domain, cls_label, pd_label, index, edge_indices
+            return sample, label, domain, cls_label, pd_label, index_tensor, edge_indices
         else:
-            return sample, label, domain, cls_label, pd_label, index
+            return sample, label, domain, cls_label, pd_label, index_tensor
+
 
     def generate_edge_index(self, x):
         """
-        Dummy edge index generator.
-        You can replace this with a real adjacency graph based on x.
+        Generate edge indices assuming linear 1D adjacency for 8-channel EMG.
+        Each node connects to its immediate neighbor (bi-directional).
         """
-        num_nodes = x.shape[0] if x.dim() == 2 else x.shape[1]
-        return torch.stack([
-            torch.arange(num_nodes).repeat_interleave(num_nodes),
-            torch.arange(num_nodes).repeat(num_nodes)
-        ])
+        num_channels = x.shape[0] if x.dim() == 2 else x.shape[1]  # should be 8
+
+        edge_list = []
+
+        for i in range(num_channels - 1):
+            edge_list.append((i, i + 1))  # i → i+1
+            edge_list.append((i + 1, i))  # i+1 → i
+
+        edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous()
+        return edge_index  # shape: [2, num_edges]
