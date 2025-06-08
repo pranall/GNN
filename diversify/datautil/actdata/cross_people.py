@@ -32,7 +32,7 @@ class ActList(mydataset):
             self.pdlabels = np.ones(self.labels.shape)*(0)
         self.tdlabels = np.ones(self.labels.shape)*group_num
         self.dlabels = np.ones(self.labels.shape) * \
-            (group_num-Nmax(args, group_num))
+            (group_num-Nmax[args.dataset])
 
     def comb_position(self, x, cy, py, sy):
         for i, peo in enumerate(self.people_group):
@@ -52,3 +52,6 @@ class ActList(mydataset):
 
     def set_x(self, x):
         self.x = x
+
+    def __len__(self):
+        return len(self.x)
