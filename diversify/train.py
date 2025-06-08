@@ -53,31 +53,41 @@ def main(args):
     for round in range(args.max_epoch):
         print(f'\n======== ROUND {round} ========')
 
-        print('==== Feature update ====')
+        print('==== Feature update ====')  
         loss_list = ['class']
         print_row(['epoch'] + [item + '_loss' for item in loss_list], colwidth=15)
 
         for step in range(args.local_epoch):
             for data in train_loader:
-                inputs, labels, domains, cls_labels, pd_labels, index, edge_indices = data
-                loss_result_dict = algorithm.update_a(
-                    (inputs, labels, domains, cls_labels, pd_labels, index, edge_indices), opta)
+                if args.use_gnn:
+                    inputs, labels, domains, cls_labels, pd_labels, index, edge_indices = data
+                    loss_result_dict = algorithm.update_a(
+                        (inputs, labels, domains, cls_labels, pd_labels, index, edge_indices), opta)
+                else:
+                    inputs, labels, domains, cls_labels, pd_labels, index = data
+                    loss_result_dict = algorithm.update_a(
+                        (inputs, labels, domains, cls_labels, pd_labels, index), opta)
             print_row([step] + [loss_result_dict[item] for item in loss_list], colwidth=15)
 
-        print('==== Latent domain characterization ====')
+        print('==== Latent domain characterization ====')  
         loss_list = ['total', 'dis', 'ent']
         print_row(['epoch'] + [item + '_loss' for item in loss_list], colwidth=15)
 
         for step in range(args.local_epoch):
             for data in train_loader:
-                inputs, labels, domains, cls_labels, pd_labels, index, edge_indices = data
-                loss_result_dict = algorithm.update_d(
-                    (inputs, labels, domains, cls_labels, pd_labels, index, edge_indices), optd)
+                if args.use_gnn:
+                    inputs, labels, domains, cls_labels, pd_labels, index, edge_indices = data
+                    loss_result_dict = algorithm.update_d(
+                        (inputs, labels, domains, cls_labels, pd_labels, index, edge_indices), optd)
+                else:
+                    inputs, labels, domains, cls_labels, pd_labels, index = data
+                    loss_result_dict = algorithm.update_d(
+                        (inputs, labels, domains, cls_labels, pd_labels, index), optd)
             print_row([step] + [loss_result_dict[item] for item in loss_list], colwidth=15)
 
         algorithm.set_dlabel(train_loader)
 
-        print('==== Domain-invariant feature learning ====')
+        print('==== Domain-invariant feature learning ====')  
         loss_list = alg_loss_dict(args)
         eval_dict = train_valid_target_eval_names(args)
         print_key = ['epoch']
@@ -90,9 +100,14 @@ def main(args):
         sss = time.time()
         for step in range(args.local_epoch):
             for data in train_loader:
-                inputs, labels, domains, cls_labels, pd_labels, index, edge_indices = data
-                step_vals = algorithm.update(
-                    (inputs, labels, domains, cls_labels, pd_labels, index, edge_indices), opt)
+                if args.use_gnn:
+                    inputs, labels, domains, cls_labels, pd_labels, index, edge_indices = data
+                    step_vals = algorithm.update(
+                        (inputs, labels, domains, cls_labels, pd_labels, index, edge_indices), opt)
+                else:
+                    inputs, labels, domains, cls_labels, pd_labels, index = data
+                    step_vals = algorithm.update(
+                        (inputs, labels, domains, cls_labels, pd_labels, index), opt)
 
             results = {
                 'epoch': step,
