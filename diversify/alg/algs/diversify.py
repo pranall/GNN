@@ -23,11 +23,11 @@ class Diversify(Algorithm):
         self.args = args
         self.use_gnn = hasattr(args, 'use_gnn') and args.use_gnn
 
-        # Get original featurizer
+        # Keep featurizer as nn.Module
         self.featurizer = get_fea(args)
-        self._base_featurizer = self.featurizer  # Save original to call inside extract_features
+        self._base_featurizer = self.featurizer  # Save original featurizer module
 
-        fea_out_dim = 128 if self.use_gnn else self.featurizer.in_features
+        fea_out_dim = 128 if self.use_gnn else self._base_featurizer.in_features
 
         self.dbottleneck = common_network.feat_bottleneck(fea_out_dim, args.bottleneck, args.layer)
         self.ddiscriminator = Adver_network.Discriminator(args.bottleneck, args.dis_hidden, args.num_classes)
@@ -42,16 +42,10 @@ class Diversify(Algorithm):
         self.dclassifier = common_network.feat_classifier(args.latent_domain_num, args.bottleneck, args.classifier)
         self.discriminator = Adver_network.Discriminator(args.bottleneck, args.dis_hidden, args.latent_domain_num)
 
-        # Override featurizer to use our extract_features wrapper
-        def featurizer_wrapper(x):
-            return self.extract_features(x)
-
-        self.featurizer = featurizer_wrapper
-
     def extract_features(self, x):
         if self.use_gnn:
             B, C, _, T = x.shape
-            x = x.squeeze(2).permute(0, 2, 1)
+            x = x.squeeze(2).permute(0, 2, 1)  # shape [B, T, C]
             out_list = []
             for i in range(B):
                 sample = x[i]
@@ -72,6 +66,7 @@ class Diversify(Algorithm):
             z1 = z1.squeeze(1)
 
         disc_in1 = Adver_network.ReverseLayerF.apply(z1, self.args.alpha1)
+
         disc_out1 = self.ddiscriminator(disc_in1)
         disc_loss = F.cross_entropy(disc_out1, all_d1, reduction='mean')
 
@@ -87,7 +82,7 @@ class Diversify(Algorithm):
     def set_dlabel(self, loader):
         self.dbottleneck.eval()
         self.dclassifier.eval()
-        self.featurizer.eval()
+        self._base_featurizer.eval()
 
         all_fea = []
         all_output = []
@@ -107,12 +102,16 @@ class Diversify(Algorithm):
                 all_output.append(outputs.cpu())
                 all_index.append(index.cpu())
 
-        all_fea = torch.cat(all_fea, dim=0)
-        all_output = torch.cat(all_output, dim=0)
+        all_fea = torch.cat(all_fea, dim=0)        # shape: [N, feat_dim]
+        all_output = torch.cat(all_output, dim=0)  # shape: [N, K]
         all_index = torch.cat(all_index, dim=0).numpy().flatten()
 
         all_output = nn.Softmax(dim=1)(all_output)
+
+        # Add bias term (column of ones)
         all_fea = torch.cat((all_fea, torch.ones(all_fea.size(0), 1)), 1)
+
+        # Normalize features (L2 norm) along feature dimension
         all_fea = (all_fea.t() / torch.norm(all_fea, p=2, dim=1)).t()
         all_fea = all_fea.numpy()
 
@@ -135,7 +134,7 @@ class Diversify(Algorithm):
 
         self.dbottleneck.train()
         self.dclassifier.train()
-        self.featurizer.train()
+        self._base_featurizer.train()
 
     def update(self, data, opt):
         all_x = data[0].cuda().float()
@@ -147,6 +146,7 @@ class Diversify(Algorithm):
             disc_input = disc_input.view(disc_input.size(0), -1)
 
         disc_out = self.discriminator(disc_input)
+
         disc_labels = data[4].cuda().long()
         disc_loss = F.cross_entropy(disc_out, disc_labels)
 
