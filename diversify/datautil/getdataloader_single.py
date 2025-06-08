@@ -1,6 +1,5 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
-
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -66,7 +65,8 @@ def get_act_dataloader(args):
             args.data_dir,
             item,
             i,
-            transform=actutil.act_train()
+            transform=actutil.act_train(),
+            use_gnn=args.use_gnn  # 👈 Pass GNN flag to dataset
         )
         if i in args.test_envs:
             target_datalist.append(tdata)
@@ -83,7 +83,6 @@ def get_act_dataloader(args):
     # Combine source datasets - convert .x from tensor to numpy before concatenation
     x_list, c_list, p_list, s_list = [], [], [], []
     for ds in source_datasetlist:
-        # Convert tensors to numpy arrays
         x_list.append(ds.x.cpu().numpy() if torch.is_tensor(ds.x) else ds.x)
         c_list.append(ds.c)
         p_list.append(ds.p)
