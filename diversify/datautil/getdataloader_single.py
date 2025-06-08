@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import numpy as np
+import torch
 from torch.utils.data import DataLoader
 
 import datautil.actdata.util as actutil
