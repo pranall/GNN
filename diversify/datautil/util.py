@@ -86,8 +86,15 @@ class subdataset(Dataset):
 
     def __getitem__(self, idx):
         real_idx = self.indices[idx]
-        x, c, p, s, pdlabel, _ = self.dataset[real_idx]
-        return x, c, p, s, pdlabel, real_idx
+        data = self.dataset[real_idx]
+
+        if self.args.use_gnn:
+            x, c, p, s, pdlabel, _, edge_indices = data
+            return x, c, p, s, pdlabel, real_idx, edge_indices
+        else:
+            x, c, p, s, pdlabel, _ = data
+            return x, c, p, s, pdlabel, real_idx
+
 
 # ==== General training utility ====
 
@@ -155,7 +162,6 @@ def get_args():
     parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
 
-    # Add missing defaults that caused previous errors
     args.act_people = {
         'emg': [
             [0, 1, 2, 3, 4, 5, 6, 7, 8],
