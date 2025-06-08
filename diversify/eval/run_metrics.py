@@ -1,4 +1,5 @@
-# eval/run_metrics.py
+import sys
+sys.path.append('./')
 
 import argparse
 import pickle
