@@ -152,5 +152,7 @@ def main(args):
 if __name__ == '__main__':
     args = get_args()
     args.use_gnn = True
-    args.layer = 'ln'  # LayerNorm is safe for small batches in GNN
+    args.layer = 'ln'
+    args.bottleneck = 256
+    args.dis_hidden = 128 
     main(args)
