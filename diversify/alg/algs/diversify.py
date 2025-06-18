@@ -154,15 +154,15 @@ class Diversify(Algorithm):
 
     def predict(self, x, edge_index=None, batch_size=None):
     # Check if featurizer requires GNN inputs
-    featurizer_params = self.featurizer.forward.__code__.co_varnames
-    if 'edge_index' in featurizer_params and 'batch_size' in featurizer_params:
-        # It's a GNN featurizer
-        if edge_index is None or batch_size is None:
-            raise ValueError("GNN featurizer requires edge_index and batch_size.")
-        z = self.featurizer(x, edge_index=edge_index, batch_size=batch_size)
-    else:
-        z = self.featurizer(x)
-    return self.classifier(self.bottleneck(z))
+        featurizer_params = self.featurizer.forward.__code__.co_varnames
+        if 'edge_index' in featurizer_params and 'batch_size' in featurizer_params:
+                # It's a GNN featurizer
+            if edge_index is None or batch_size is None:
+                raise ValueError("GNN featurizer requires edge_index and batch_size.")
+            z = self.featurizer(x, edge_index=edge_index, batch_size=batch_size)
+        else:
+            z = self.featurizer(x)
+        return self.classifier(self.bottleneck(z))
 
     def predict1(self, x):
         return self.ddiscriminator(self.dbottleneck(self.featurizer(x)))
