@@ -9,7 +9,7 @@ Original file is located at
 
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
-
+import os
 from datautil.actdata.util import *
 from datautil.util import mydataset, Nmax
 import numpy as np
@@ -24,7 +24,8 @@ class ActList(mydataset):
         self.task = 'cross_people'
         self.transform = transform
         self.target_transform = target_transform
-        x, cy, py, sy = loaddata_from_numpy(self.dataset, self.task, self.args.data_dir)
+        data_root = os.path.abspath(root_dir)
+        x, cy, py, sy = loaddata_from_numpy(self.dataset, self.task, data_root)
         self.people_group = people_group
         self.position = np.sort(np.unique(sy))
         self.comb_position(x, cy, py, sy)
