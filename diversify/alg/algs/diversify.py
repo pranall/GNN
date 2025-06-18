@@ -157,7 +157,7 @@ class Diversify(Algorithm):
             z = self.featurizer(x, edge_index, batch_size)
         else:
             z = self.featurizer(x)
-            return self.classifier(self.bottleneck(z))
+        return self.classifier(self.bottleneck(z))
 
     def predict1(self, x):
         return self.ddiscriminator(self.dbottleneck(self.featurizer(x)))
