@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+
 import random
 import numpy as np
 import torch
@@ -9,7 +10,6 @@ import os
 import argparse
 import torchvision
 import PIL
-from torch.utils.data import Dataset
 
 
 def set_random_seed(seed=0):
@@ -91,36 +91,49 @@ def act_param_init(args):
     args.select_position = {'emg': [0]}
     args.select_channel = {'emg': np.arange(8)}
     args.hz_list = {'emg': 1000}
-    args.act_people = {'emg': [[i*9+j for j in range(9)] for i in range(4)]}
+    args.act_people = {'emg': [[i*9+j for j in range(9)]for i in range(4)]}
     tmp = {'emg': ((8, 1, 200), 6, 10)}
-    args.num_classes, args.input_shape, args.grid_size = tmp[args.dataset][1], tmp[args.dataset][0], tmp[args.dataset][2]
+    args.num_classes, args.input_shape, args.grid_size = tmp[
+        args.dataset][1], tmp[args.dataset][0], tmp[args.dataset][2]
+
     return args
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='DG')
     parser.add_argument('--algorithm', type=str, default="diversify")
-    parser.add_argument('--alpha', type=float, default=0.1, help="DANN dis alpha")
-    parser.add_argument('--alpha1', type=float, default=0.1, help="DANN dis alpha")
-    parser.add_argument('--batch_size', type=int, default=32, help="batch_size")
+    parser.add_argument('--alpha', type=float,
+                        default=0.1, help="DANN dis alpha")
+    parser.add_argument('--alpha1', type=float,
+                        default=0.1, help="DANN dis alpha")
+    parser.add_argument('--batch_size', type=int,
+                        default=32, help="batch_size")
     parser.add_argument('--beta1', type=float, default=0.5, help="Adam")
     parser.add_argument('--bottleneck', type=int, default=256)
-    parser.add_argument('--checkpoint_freq', type=int, default=100, help='Checkpoint every N steps')
-    parser.add_argument('--classifier', type=str, default="linear", choices=["linear", "wn"])
+    parser.add_argument('--checkpoint_freq', type=int,
+                        default=100, help='Checkpoint every N steps')
+    parser.add_argument('--classifier', type=str,
+                        default="linear", choices=["linear", "wn"])
     parser.add_argument('--data_file', type=str, default='')
     parser.add_argument('--dataset', type=str, default='dsads')
     parser.add_argument('--data_dir', type=str, default='')
     parser.add_argument('--dis_hidden', type=int, default=256)
-    parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
-    parser.add_argument('--layer', type=str, default="bn", choices=["ori", "bn"])
+    parser.add_argument('--gpu_id', type=str, nargs='?',
+                        default='0', help="device id to run")
+    parser.add_argument('--layer', type=str, default="bn",
+                        choices=["ori", "bn"])
     parser.add_argument('--lam', type=float, default=0.0)
     parser.add_argument('--latent_domain_num', type=int, default=3)
-    parser.add_argument('--local_epoch', type=int, default=1, help='local iterations')
+    parser.add_argument('--local_epoch', type=int,
+                        default=1, help='local iterations')
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
-    parser.add_argument('--lr_decay1', type=float, default=1.0, help='for pretrained featurizer')
+    parser.add_argument('--lr_decay1', type=float,
+                        default=1.0, help='for pretrained featurizer')
     parser.add_argument('--lr_decay2', type=float, default=1.0)
-    parser.add_argument('--max_epoch', type=int, default=120, help="max iterations")
-    parser.add_argument('--model_size', default='median', choices=['small', 'median', 'large', 'transformer'])
+    parser.add_argument('--max_epoch', type=int,
+                        default=120, help="max iterations")
+    parser.add_argument('--model_size', default='median',
+                        choices=['small', 'median', 'large', 'transformer'])
     parser.add_argument('--N_WORKERS', type=int, default=4)
     parser.add_argument('--old', action='store_true')
     parser.add_argument('--seed', type=int, default=0)
@@ -130,72 +143,10 @@ def get_args():
     parser.add_argument('--weight_decay', type=float, default=5e-4)
     args = parser.parse_args()
     args.steps_per_epoch = 10000000000
-    args.data_dir = args.data_file + args.data_dir
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+    args.data_dir = args.data_file+args.data_dir
+    os.environ['CUDA_VISIBLE_DEVICS'] = args.gpu_id
     os.makedirs(args.output, exist_ok=True)
     sys.stdout = Tee(os.path.join(args.output, 'out.txt'))
     sys.stderr = Tee(os.path.join(args.output, 'err.txt'))
     args = act_param_init(args)
     return args
-
-
-# === For Metrics + Loader Compatibility ===
-
-class combindataset(Dataset):
-    def __init__(self, args, datasetlist):
-        self.args = args
-        x_list, y_list, p_list, s_list = [], [], [], []
-        for ds in datasetlist:
-            x_list.append(ds.x)
-            y_list.append(ds.labels)
-            p_list.append(ds.people)
-            s_list.append(ds.sensors)
-        self.x = np.concatenate(x_list, axis=0)
-        self.labels = np.concatenate(y_list, axis=0)
-        self.people = np.concatenate(p_list, axis=0)
-        self.sensors = np.concatenate(s_list, axis=0)
-        self.pdlabels = np.zeros(len(self.x), dtype=np.int64)
-
-    def __len__(self):
-        return len(self.x)
-
-    def __getitem__(self, index):
-        x = self.x[index]
-        x = torch.tensor(x).float().unsqueeze(1)  # shape: (C, 1, T)
-        label = self.labels[index]
-        person = self.people[index]
-        sensor = self.sensors[index]
-        pdlabel = self.pdlabels[index]
-        return x, label, person, sensor, pdlabel, index
-
-
-class subdataset(Dataset):
-    def __init__(self, args, dataset, indices, transform=None):
-        self.args = args
-        self.dataset = dataset
-        self.indices = np.array(indices, dtype=np.int64)
-        self.transform = transform
-        self.pdlabels = dataset.pdlabels[indices]
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        real_idx = self.indices[idx]
-        return self.dataset[real_idx]
-
-class mydataset:
-    def __init__(self, args):
-        self.args = args
-        self.x = None
-        self.labels = None
-        self.dlabels = None
-        self.pclabels = None
-        self.pdlabels = None
-
-
-Nmax = {
-    'emg': 36,
-    'pamap': 10,
-    'dsads': 8
-}
