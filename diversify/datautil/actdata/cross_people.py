@@ -24,7 +24,7 @@ class ActList(mydataset):
         self.task = 'cross_people'
         self.transform = transform
         self.target_transform = target_transform
-        x, cy, py, sy = loaddata_from_numpy(self.dataset, self.task, root_dir)
+        x, cy, py, sy = loaddata_from_numpy(self.dataset, self.task, self.args.data_dir)
         self.people_group = people_group
         self.position = np.sort(np.unique(sy))
         self.comb_position(x, cy, py, sy)
