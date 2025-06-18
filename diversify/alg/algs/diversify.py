@@ -153,11 +153,11 @@ class Diversify(Algorithm):
         return {'class': classifier_loss.item()}
 
     def predict(self, x, edge_index=None, batch_size=None):
-    if edge_index is not None and batch_size is not None:
-        z = self.featurizer(x, edge_index, batch_size)
-    else:
-        z = self.featurizer(x)
-    return self.classifier(self.bottleneck(z))
+        if edge_index is not None and batch_size is not None:
+            z = self.featurizer(x, edge_index, batch_size)
+        else:
+            z = self.featurizer(x)
+            return self.classifier(self.bottleneck(z))
 
     def predict1(self, x):
         return self.ddiscriminator(self.dbottleneck(self.featurizer(x)))
