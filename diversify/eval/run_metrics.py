@@ -24,6 +24,8 @@ def main():
     args_extra = parser.parse_args()
 
     args = get_args()
+    args.data_dir = './data/'
+    args.dataset = 'emg'
     args.output = args_extra.output_dir
     args.test_envs = [args_extra.test_env]
     args.use_gnn = True
