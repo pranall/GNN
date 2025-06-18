@@ -115,7 +115,7 @@ def get_args():
     parser.add_argument('--classifier', type=str,
                         default="linear", choices=["linear", "wn"])
     parser.add_argument('--data_file', type=str, default='')
-    parser.add_argument('--dataset', type=str, default='dsads')
+    parser.add_argument('--dataset', type=str, default='emg')
     parser.add_argument('--data_dir', type=str, default='')
     parser.add_argument('--dis_hidden', type=int, default=256)
     parser.add_argument('--gpu_id', type=str, nargs='?',
