@@ -17,34 +17,35 @@ from eval.metrics import (
 )
 
 def main():
-    # ✅ Only parse the additional custom args
-    extra_parser = argparse.ArgumentParser()
-    extra_parser.add_argument('--output_dir', type=str, required=True)
-    extra_parser.add_argument('--test_env', type=int, required=True)
-    extra_args, _ = extra_parser.parse_known_args()
+    # ✅ These are CLI-only arguments
+    cli_parser = argparse.ArgumentParser()
+    cli_parser.add_argument('--output_dir', type=str, required=True)
+    cli_parser.add_argument('--test_env', type=int, required=True)
+    cli_args, _ = cli_parser.parse_known_args()
 
-    # ✅ Load training config arguments
+    # ✅ Full config from get_args
     args = get_args()
-    args.output = extra_args.output_dir
-    args.test_envs = [extra_args.test_env]
+    args.output = cli_args.output_dir
+    args.test_envs = [cli_args.test_env]
     args.use_gnn = True
     args.layer = 'ln'
 
-    # ✅ Load dataloaders
+    # ✅ Dataloaders
     train_loader, _, _, target_loader, _, _, _ = get_act_dataloader(args)
 
-    # ✅ Load trained model
-    model_class = alg.get_algorithm_class(args.algorithm)
-    model = model_class(args).cuda()
+    # ✅ Model
+    algorithm_class = alg.get_algorithm_class(args.algorithm)
+    model = algorithm_class(args).cuda()
     model.eval()
 
-    # ✅ Load training history (optional)
+    # ✅ Training history (optional)
     history_path = Path(args.output) / "training_history.pkl"
     history = {}
     if history_path.exists():
         with open(history_path, "rb") as f:
             history = pickle.load(f)
 
+    # ✅ Metrics
     print("\n=== Evaluation Metrics on Target Domain ===")
     print("Test Accuracy (OOD):", compute_accuracy(model, target_loader))
 
@@ -59,7 +60,7 @@ def main():
         model.discriminator
     ))
 
-    # ✅ Plot training curves if available
+    # ✅ Plot if history available
     if history:
         print("Plotting training metrics...")
         plot_metrics({"GNN": history}, save_dir=args.output)
