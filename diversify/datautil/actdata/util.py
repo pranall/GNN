@@ -183,3 +183,12 @@ class subdataset(Dataset):
     def __getitem__(self, idx):
         real_idx = self.indices[idx]
         return self.dataset[real_idx]
+
+class mydataset:
+    def __init__(self, args):
+        self.args = args
+        self.x = None
+        self.labels = None
+        self.dlabels = None
+        self.pclabels = None
+        self.pdlabels = None
