@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_dir', type=str, required=True)
     parser.add_argument('--test_env', type=int, required=True)
+    parser.add_argument('--dataset', type=str, default='emg')
     args_extra = parser.parse_args()
 
     args = get_args()
