@@ -23,12 +23,26 @@ def compute_accuracy(model, loader):
     model.eval()
     correct, total = 0, 0
     with torch.no_grad():
-        for x, y, *_ in loader:
-            x, y = x.cuda().float(), y.cuda().long()
-            preds = model.predict(x)
+        for batch in loader:
+            x, y = batch[0].cuda().float(), batch[1].cuda().long()
+
+            try:
+                # Try regular predict (for CNNs)
+                preds = model.predict(x)
+            except TypeError:
+                # Fallback for GNNs needing edge_index and batch_size
+                batch_size = x.shape[0]
+                device = x.device
+                # Dummy edge_index assuming full connection (very basic)
+                edge_index = torch.tensor([[i for i in range(batch_size)] * 2,
+                                           [i for i in range(batch_size)] * 2],
+                                          device=device)
+                preds = model.predict(x, edge_index=edge_index, batch_size=batch_size)
+
             correct += (preds.argmax(1) == y).sum().item()
             total += y.size(0)
     return correct / total
+
 
 def compute_h_divergence(source_feats, target_feats, discriminator):
     source = torch.tensor(source_feats).cuda()
