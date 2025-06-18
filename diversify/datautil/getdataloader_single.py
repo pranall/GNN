@@ -11,6 +11,7 @@ Original file is located at
 # Licensed under the MIT License.
 
 # coding=utf-8
+import os
 import numpy as np
 from torch.utils.data import DataLoader
 
@@ -42,8 +43,9 @@ def get_act_dataloader(args):
     tmpp = args.act_people[args.dataset]
     args.domain_num = len(tmpp)
     for i, item in enumerate(tmpp):
+        data_root = os.path.abspath(args.data_dir)
         tdata = pcross_act.ActList(
-            args, args.dataset, args.data_dir, item, i, transform=actutil.act_train())
+            args, args.dataset, data_root, item, i, transform=actutil.act_train())
         if i in args.test_envs:
             target_datalist.append(tdata)
         else:
