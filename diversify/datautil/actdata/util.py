@@ -192,3 +192,9 @@ class mydataset:
         self.dlabels = None
         self.pclabels = None
         self.pdlabels = None
+
+Nmax = {
+    'emg': 36,
+    'pamap': 10,
+    'dsads': 8
+}
