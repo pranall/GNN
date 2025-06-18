@@ -17,32 +17,33 @@ from eval.metrics import (
 )
 
 def main():
-    # ✅ Parse these before get_args() so they’re not lost
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--output_dir', type=str, required=True)
-    parser.add_argument('--test_env', type=int, required=True)
-    args_extra, _ = parser.parse_known_args()
+    # ✅ Only parse the additional custom args
+    extra_parser = argparse.ArgumentParser()
+    extra_parser.add_argument('--output_dir', type=str, required=True)
+    extra_parser.add_argument('--test_env', type=int, required=True)
+    extra_args, _ = extra_parser.parse_known_args()
 
-    # ✅ Load the rest of the args from the model config
+    # ✅ Load training config arguments
     args = get_args()
-    args.output = args_extra.output_dir
-    args.test_envs = [args_extra.test_env]
+    args.output = extra_args.output_dir
+    args.test_envs = [extra_args.test_env]
     args.use_gnn = True
     args.layer = 'ln'
 
-    # ✅ Get dataloaders and model
-    train_loader, _, valid_loader, target_loader, _, _, _ = get_act_dataloader(args)
+    # ✅ Load dataloaders
+    train_loader, _, _, target_loader, _, _, _ = get_act_dataloader(args)
+
+    # ✅ Load trained model
     model_class = alg.get_algorithm_class(args.algorithm)
     model = model_class(args).cuda()
     model.eval()
 
-    # ✅ Load training history if available
+    # ✅ Load training history (optional)
     history_path = Path(args.output) / "training_history.pkl"
+    history = {}
     if history_path.exists():
         with open(history_path, "rb") as f:
             history = pickle.load(f)
-    else:
-        history = {}
 
     print("\n=== Evaluation Metrics on Target Domain ===")
     print("Test Accuracy (OOD):", compute_accuracy(model, target_loader))
@@ -58,8 +59,9 @@ def main():
         model.discriminator
     ))
 
+    # ✅ Plot training curves if available
     if history:
-        print("Plotting training curves...")
+        print("Plotting training metrics...")
         plot_metrics({"GNN": history}, save_dir=args.output)
 
 if __name__ == "__main__":
