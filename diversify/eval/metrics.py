@@ -25,19 +25,19 @@ def compute_accuracy(model, loader):
     with torch.no_grad():
         for batch in loader:
             x, y = batch[0].cuda().float(), batch[1].cuda().long()
+            batch_size = x.size(0)
+            device = x.device
+
+            # Create a dummy full edge_index
+            edge_index = torch.stack([
+                torch.arange(batch_size).repeat_interleave(batch_size),
+                torch.arange(batch_size).repeat(batch_size)
+            ], dim=0).to(device)
 
             try:
-                # Try regular predict (for CNNs)
-                preds = model.predict(x)
-            except TypeError:
-                # Fallback for GNNs needing edge_index and batch_size
-                batch_size = x.shape[0]
-                device = x.device
-                # Dummy edge_index assuming full connection (very basic)
-                edge_index = torch.tensor([[i for i in range(batch_size)] * 2,
-                                           [i for i in range(batch_size)] * 2],
-                                          device=device)
                 preds = model.predict(x, edge_index=edge_index, batch_size=batch_size)
+            except TypeError:
+                preds = model.predict(x)
 
             correct += (preds.argmax(1) == y).sum().item()
             total += y.size(0)
