@@ -9,7 +9,18 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 # 🔍 Label sanity check at file level
 y_all = np.load('/content/GNN/diversify/data/emg/emg_y.npy')
-print("🎯 Unique labels in dataset:", np.unique(y_all))
+print("Unique labels in dataset:", np.unique(y_all))
+
+def extract_features_labels(model, loader):
+    model.eval()
+    all_feats, all_labels = [], []
+    with torch.no_grad():
+        for x, y, *_ in loader:
+            x, y = x.cuda().float(), y.cuda().long()
+            feats = model.extract_features(x)
+            all_feats.append(feats.cpu().numpy())
+            all_labels.append(y.cpu().numpy())
+    return np.concatenate(all_feats), np.concatenate(all_labels)
 
 
 def compute_silhouette(features, labels):
