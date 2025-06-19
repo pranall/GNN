@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import os
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+y = np.load('/content/GNN/diversify/data/emg/emg_y.npy')
+print("Unique labels in dataset:", np.unique(y))
 
 def compute_silhouette(features, labels):
     try:
@@ -26,6 +28,15 @@ def compute_accuracy(model, loader):
     correct, total = 0, 0
     with torch.no_grad():
         for batch in loader:
+            x, y = batch[0], batch[1]  # keep on CPU initially
+            # Validate labels BEFORE moving to CUDA
+            if y.min() < 0 or y.max() >= model.args.num_classes:
+                print(f"⚠️ Invalid labels found in batch! min={y.min().item()}, max={y.max().item()}, expected 0 to {model.args.num_classes - 1}")
+                print(f"🚫 Skipping this batch to avoid crash.")
+                continue
+            # Now it's safe to move to CUDA
+            x, y = x.cuda().float(), y.cuda().long()
+
             x, y = batch[0].cuda().float(), batch[1].cuda().long()
 
             # ✅ Label sanity check before prediction
