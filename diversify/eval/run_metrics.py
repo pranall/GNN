@@ -1,23 +1,21 @@
 # eval/run_metrics.py
 
+import sys
+import os
+sys.path.append(os.path.abspath("."))  
+
 import argparse
 from pathlib import Path
 import torch
 import pickle
-import sys
-from eval.metrics import (
-    compute_accuracy, compute_silhouette, compute_davies_bouldin,
-    compute_h_divergence, extract_features_labels, plot_metrics
-)
-sys.path.append('./')
 
-from utils.util import get_args
-from datautil.getdataloader_single import get_act_dataloader
-from alg import alg
+# Now imports will work
 from eval.metrics import (
     compute_accuracy, compute_silhouette, compute_davies_bouldin,
     compute_h_divergence, extract_features_labels, plot_metrics
 )
+
+sys.path.append('./')
 
 def main():
     parser = argparse.ArgumentParser()
