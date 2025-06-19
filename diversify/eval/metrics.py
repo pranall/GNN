@@ -26,6 +26,17 @@ def compute_davies_bouldin(features, labels):
     except Exception as e:
         print(f"Davies-Bouldin error: {e}")
         return -1
+        
+def compute_h_divergence(source_feats, target_feats, discriminator):
+    source = torch.tensor(source_feats).cuda()
+    target = torch.tensor(target_feats).cuda()
+    feats = torch.cat([source, target], dim=0)
+    labels = torch.cat([
+        torch.zeros(source.shape[0], dtype=torch.long),
+        torch.ones(target.shape[0], dtype=torch.long)
+    ]).cuda()
+    preds = discriminator(feats)
+    return F.cross_entropy(preds, labels).item()
 
 
 def compute_accuracy(model, loader):
