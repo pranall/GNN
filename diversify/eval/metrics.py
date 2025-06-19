@@ -30,7 +30,8 @@ def compute_accuracy(model, loader):
 
             # ✅ Move to CUDA only if safe
             try:
-                x, y = x.cuda().float(), y.cuda().long()
+                y = y.to(torch.long)
+                x, y = x.cuda().float(), y.cuda()
             except Exception as e:
                 print(f"❌ CUDA transfer failed: {e}")
                 print("🧪 y:", y)
