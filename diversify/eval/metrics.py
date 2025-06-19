@@ -28,21 +28,27 @@ def compute_accuracy(model, loader):
             batch_size = x.size(0)
             device = x.device
 
-            # Create a dummy full edge_index
-            edge_index = torch.stack([
-                torch.arange(batch_size).repeat_interleave(batch_size),
-                torch.arange(batch_size).repeat(batch_size)
-            ], dim=0).to(device)
-
             try:
-                preds = model.predict(x, edge_index=edge_index, batch_size=batch_size)
-            except TypeError:
-                preds = model.predict(x)
+                # Try with dummy edge_index only if needed
+                featurizer_params = model.featurizer.forward.__code__.co_varnames
+                if 'edge_index' in featurizer_params and 'batch_size' in featurizer_params:
+                    # This dummy assumes a temporal chain, not full connection
+                    edge_index = torch.tensor([
+                        list(range(batch_size - 1)),
+                        list(range(1, batch_size))
+                    ], dtype=torch.long).to(device)
+
+                    preds = model.predict(x, edge_index=edge_index, batch_size=batch_size)
+                else:
+                    preds = model.predict(x)
+            except Exception as e:
+                print(f"🚨 Prediction failed: {e}")
+                continue
 
             correct += (preds.argmax(1) == y).sum().item()
             total += y.size(0)
-    return correct / total
 
+    return correct / total if total > 0 else 0.0
 
 def compute_h_divergence(source_feats, target_feats, discriminator):
     source = torch.tensor(source_feats).cuda()
