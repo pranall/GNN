@@ -26,9 +26,16 @@ def compute_accuracy(model, loader):
             if y.min() < 0 or y.max() >= model.args.num_classes:
                 print(f"⚠️ Invalid labels in batch! min={y.min().item()}, max={y.max().item()}, expected: 0 to {model.args.num_classes - 1}")
                 continue  # skip bad batch
+            print("🧪 y.min():", y.min().item(), "| y.max():", y.max().item(), "| num_classes:", model.args.num_classes)
 
             # ✅ Move to CUDA only if safe
-            x, y = x.cuda().float(), y.cuda().long()
+            try:
+                x, y = x.cuda().float(), y.cuda().long()
+            except Exception as e:
+                print(f"❌ CUDA transfer failed: {e}")
+                print("🧪 y:", y)
+                continue
+
             batch_size = x.size(0)
             device = x.device
 
