@@ -87,3 +87,20 @@ def compute_accuracy(model, loader):
             total += y.size(0)
 
     return correct / total if total > 0 else 0.0
+
+def plot_metrics(history_dict, save_dir="plots"):
+    import matplotlib.pyplot as plt
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+    for metric in ["train_acc", "valid_acc", "target_acc", "class_loss", "dis_loss"]:
+        plt.figure()
+        for label, values in history_dict.items():
+            if metric in values:
+                plt.plot(values[metric], label=label)
+        plt.title(f"{metric} over Epochs")
+        plt.xlabel("Epoch")
+        plt.ylabel(metric)
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(f"{save_dir}/{metric}.png")
+        plt.close()
