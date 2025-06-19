@@ -1,3 +1,5 @@
+# eval/metrics.py
+
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -5,57 +7,27 @@ from sklearn.metrics import silhouette_score, davies_bouldin_score
 import matplotlib.pyplot as plt
 import os
 
-# Optional: Ensure safer debugging
+# Optional: force synchronous CUDA error reporting (for debugging)
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-# 🟡 For sanity check: show all dataset label values
-try:
-    y_all = np.load('/content/GNN/diversify/data/emg/emg_y.npy')
-    print("✅ Unique labels in dataset:", np.unique(y_all))
-except Exception as e:
-    print("⚠️ Could not load full label set for debugging:", e)
-
-# 🔹 Metric Functions
-
-def compute_silhouette(features, labels):
-    try:
-        return silhouette_score(features, labels)
-    except Exception as e:
-        print(f"Silhouette error: {e}")
-        return -1
-
-def compute_davies_bouldin(features, labels):
-    try:
-        return davies_bouldin_score(features, labels)
-    except Exception as e:
-        print(f"Davies-Bouldin error: {e}")
-        return -1
-
-def compute_h_divergence(source_feats, target_feats, discriminator):
-    source = torch.tensor(source_feats).cuda()
-    target = torch.tensor(target_feats).cuda()
-    feats = torch.cat([source, target], dim=0)
-    labels = torch.cat([
-        torch.zeros(source.shape[0], dtype=torch.long),
-        torch.ones(target.shape[0], dtype=torch.long)
-    ]).cuda()
-    preds = discriminator(feats)
-    return F.cross_entropy(preds, labels).item()
-
-# 🔹 Main Accuracy Function
+# 🔍 Check label distribution in dataset (sanity check)
+y_all = np.load('/content/GNN/diversify/data/emg/emg_y.npy')
+print("✅ Unique labels in dataset:", np.unique(y_all))
+print("🔢 Max label in dataset:", int(np.max(y_all)))
 
 def compute_accuracy(model, loader):
     model.eval()
     correct, total = 0, 0
     with torch.no_grad():
         for batch in loader:
-            x, y = batch[0], batch[1]  # Keep on CPU first
+            x, y = batch[0], batch[1]
 
-            # 🚨 SAFETY CHECK before moving to CUDA
+            # 🚨 Check if any label is invalid
             if y.min() < 0 or y.max() >= model.args.num_classes:
-                print(f"⚠️ Skipping batch due to invalid label: min={y.min().item()}, max={y.max().item()}, expected 0 to {model.args.num_classes - 1}")
-                continue
+                print(f"⚠️ Invalid labels in batch! min={y.min().item()}, max={y.max().item()}, expected: 0 to {model.args.num_classes - 1}")
+                continue  # skip bad batch
 
+            # ✅ Move to CUDA only if safe
             x, y = x.cuda().float(), y.cuda().long()
             batch_size = x.size(0)
             device = x.device
@@ -79,24 +51,41 @@ def compute_accuracy(model, loader):
 
     return correct / total if total > 0 else 0.0
 
-# 🔹 Feature extraction (with same safety check)
-
 def extract_features_labels(model, loader):
     model.eval()
     all_feats, all_labels = [], []
     with torch.no_grad():
         for x, y, *_ in loader:
-            # 🚨 Prevent crash due to bad labels
-            if y.min() < 0 or y.max() >= model.args.num_classes:
-                print(f"⚠️ Skipping feature batch with invalid label: min={y.min()}, max={y.max()}")
-                continue
             x, y = x.cuda().float(), y.cuda().long()
             feats = model.extract_features(x)
             all_feats.append(feats.cpu().numpy())
             all_labels.append(y.cpu().numpy())
     return np.concatenate(all_feats), np.concatenate(all_labels)
 
-# 🔹 Optional Plotting
+def compute_h_divergence(source_feats, target_feats, discriminator):
+    source = torch.tensor(source_feats).cuda()
+    target = torch.tensor(target_feats).cuda()
+    feats = torch.cat([source, target], dim=0)
+    labels = torch.cat([
+        torch.zeros(source.shape[0], dtype=torch.long),
+        torch.ones(target.shape[0], dtype=torch.long)
+    ]).cuda()
+    preds = discriminator(feats)
+    return F.cross_entropy(preds, labels).item()
+
+def compute_silhouette(features, labels):
+    try:
+        return silhouette_score(features, labels)
+    except Exception as e:
+        print(f"Silhouette error: {e}")
+        return -1
+
+def compute_davies_bouldin(features, labels):
+    try:
+        return davies_bouldin_score(features, labels)
+    except Exception as e:
+        print(f"Davies-Bouldin error: {e}")
+        return -1
 
 def plot_metrics(history_dict, save_dir="plots"):
     os.makedirs(save_dir, exist_ok=True)
