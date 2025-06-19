@@ -5,6 +5,8 @@ from sklearn.metrics import silhouette_score, davies_bouldin_score
 import matplotlib.pyplot as plt
 import os
 
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
 def compute_silhouette(features, labels):
     try:
         return silhouette_score(features, labels)
@@ -25,19 +27,24 @@ def compute_accuracy(model, loader):
     with torch.no_grad():
         for batch in loader:
             x, y = batch[0].cuda().float(), batch[1].cuda().long()
+
+            # ✅ Label sanity check before prediction
+            if y.min() < 0 or y.max() >= model.args.num_classes:
+                print(f"⚠️ Invalid labels found: min={y.min().item()}, max={y.max().item()}")
+                print("y =", y)
+                continue  # Skip this batch to avoid crash
+
             batch_size = x.size(0)
             device = x.device
 
             try:
-                # Try with dummy edge_index only if needed
+                # GNN featurizer handling
                 featurizer_params = model.featurizer.forward.__code__.co_varnames
                 if 'edge_index' in featurizer_params and 'batch_size' in featurizer_params:
-                    # This dummy assumes a temporal chain, not full connection
                     edge_index = torch.tensor([
                         list(range(batch_size - 1)),
                         list(range(1, batch_size))
                     ], dtype=torch.long).to(device)
-
                     preds = model.predict(x, edge_index=edge_index, batch_size=batch_size)
                 else:
                     preds = model.predict(x)
