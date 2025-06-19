@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 import pickle
 import sys
-
+from eval.metrics import compute_accuracy, extract_features_labels, ...
 sys.path.append('./')
 
 from utils.util import get_args
