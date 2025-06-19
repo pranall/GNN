@@ -2,22 +2,21 @@
 
 import sys
 import os
-sys.path.append(os.path.abspath("."))  # ✅ Ensure correct base path
+sys.path.append(os.path.abspath("."))
 
 import argparse
 from pathlib import Path
 import torch
 import pickle
 
-# ✅ Import after sys.path is updated
+# ✅ Add this
+from utils.util import get_args
+
+# ✅ All other imports
 from eval.metrics import (
     compute_accuracy, compute_silhouette, compute_davies_bouldin,
     compute_h_divergence, extract_features_labels, plot_metrics
 )
-from utils.util import get_args
-from datautil.getdataloader_single import get_act_dataloader
-from alg import alg
-
 
 def main():
     parser = argparse.ArgumentParser()
