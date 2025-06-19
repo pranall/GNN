@@ -1,5 +1,3 @@
-# eval/metrics.py
-
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -7,13 +5,14 @@ from sklearn.metrics import silhouette_score, davies_bouldin_score
 import matplotlib.pyplot as plt
 import os
 
-# Optional: force synchronous CUDA error reporting (for debugging)
+# Force synchronous CUDA error reporting for easier debugging
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-# 🔍 Check label distribution in dataset (sanity check)
+# 🔍 Initial label sanity check
 y_all = np.load('/content/GNN/diversify/data/emg/emg_y.npy')
 print("✅ Unique labels in dataset:", np.unique(y_all))
 print("🔢 Max label in dataset:", int(np.max(y_all)))
+
 
 def compute_accuracy(model, loader):
     model.eval()
@@ -22,37 +21,34 @@ def compute_accuracy(model, loader):
         for batch in loader:
             x, y = batch[0], batch[1]
 
-            # 🔍 Check label type and values before anything else
-            try:
-                print("🧾 y.dtype:", y.dtype)
-                print("🔍 Unique labels in batch:", torch.unique(y))
-                print("🔍 y.min():", y.min().item(), "y.max():", y.max().item())
-            except Exception as e:
-                print(f"⚠️ Error inspecting labels: {e}")
-                continue
+            # 🧾 Show dtype before any operation
+            print("🧾 y original dtype:", y.dtype)
 
-            # 🔁 Force integer labels
+            # 🔁 Convert labels properly
             try:
-                y = y.to(torch.long)
+                y = y.type(torch.LongTensor)  # Ensure long type for classification
+                y = y.to(x.device)             # Move to same device as input
+                print("✅ y converted dtype:", y.dtype)
+
+                # 🚨 Check for invalid label values
                 if y.min() < 0 or y.max() >= model.args.num_classes:
-                    print(f"⚠️ Invalid label range: expected 0 to {model.args.num_classes - 1}")
+                    print(f"⚠️ Label out of range: min={y.min().item()} max={y.max().item()} (expected 0 to {model.args.num_classes - 1})")
                     continue
             except Exception as e:
-                print(f"❌ Failed label conversion: {e}")
+                print(f"❌ Label handling error: {e}")
+                print("🧾 y content:", y)
                 continue
 
-            # ✅ Move to CUDA
+            # ✅ Convert x
             try:
-                x, y = x.cuda().float(), y.cuda()
+                x = x.cuda().float()
             except Exception as e:
-                print(f"❌ CUDA move failed: {e}")
-                print("🧾 y:", y)
+                print(f"❌ x CUDA move failed: {e}")
                 continue
 
             batch_size = x.size(0)
             device = x.device
 
-            # 🔁 Predict safely
             try:
                 featurizer_params = model.featurizer.forward.__code__.co_varnames
                 if 'edge_index' in featurizer_params and 'batch_size' in featurizer_params:
@@ -74,16 +70,23 @@ def compute_accuracy(model, loader):
     print(f"✅ Final accuracy: {acc:.4f}")
     return acc
 
+
 def extract_features_labels(model, loader):
     model.eval()
     all_feats, all_labels = [], []
     with torch.no_grad():
         for x, y, *_ in loader:
-            x, y = x.cuda().float(), y.cuda().long()
-            feats = model.extract_features(x)
-            all_feats.append(feats.cpu().numpy())
-            all_labels.append(y.cpu().numpy())
+            try:
+                x = x.cuda().float()
+                y = y.type(torch.LongTensor).cuda()
+                feats = model.extract_features(x)
+                all_feats.append(feats.cpu().numpy())
+                all_labels.append(y.cpu().numpy())
+            except Exception as e:
+                print(f"❌ Feature extraction failed: {e}")
+                continue
     return np.concatenate(all_feats), np.concatenate(all_labels)
+
 
 def compute_h_divergence(source_feats, target_feats, discriminator):
     source = torch.tensor(source_feats).cuda()
@@ -96,6 +99,7 @@ def compute_h_divergence(source_feats, target_feats, discriminator):
     preds = discriminator(feats)
     return F.cross_entropy(preds, labels).item()
 
+
 def compute_silhouette(features, labels):
     try:
         return silhouette_score(features, labels)
@@ -103,12 +107,14 @@ def compute_silhouette(features, labels):
         print(f"Silhouette error: {e}")
         return -1
 
+
 def compute_davies_bouldin(features, labels):
     try:
         return davies_bouldin_score(features, labels)
     except Exception as e:
         print(f"Davies-Bouldin error: {e}")
         return -1
+
 
 def plot_metrics(history_dict, save_dir="plots"):
     os.makedirs(save_dir, exist_ok=True)
