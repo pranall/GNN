@@ -24,6 +24,7 @@ def main():
     args_extra = parser.parse_args()
 
     args = get_args()
+    args.num_classes = 36
     args.data_dir = './data/'
     args.dataset = 'emg'
     args.output = args_extra.output_dir
