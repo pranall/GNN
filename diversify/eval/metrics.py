@@ -22,24 +22,37 @@ def compute_accuracy(model, loader):
         for batch in loader:
             x, y = batch[0], batch[1]
 
-            # 🚨 Check if any label is invalid
-            if y.min() < 0 or y.max() >= model.args.num_classes:
-                print(f"⚠️ Invalid labels in batch! min={y.min().item()}, max={y.max().item()}, expected: 0 to {model.args.num_classes - 1}")
-                continue  # skip bad batch
-            print("🧪 y.min():", y.min().item(), "| y.max():", y.max().item(), "| num_classes:", model.args.num_classes)
+            # 🔍 Check label type and values before anything else
+            try:
+                print("🧾 y.dtype:", y.dtype)
+                print("🔍 Unique labels in batch:", torch.unique(y))
+                print("🔍 y.min():", y.min().item(), "y.max():", y.max().item())
+            except Exception as e:
+                print(f"⚠️ Error inspecting labels: {e}")
+                continue
 
-            # ✅ Move to CUDA only if safe
+            # 🔁 Force integer labels
             try:
                 y = y.to(torch.long)
+                if y.min() < 0 or y.max() >= model.args.num_classes:
+                    print(f"⚠️ Invalid label range: expected 0 to {model.args.num_classes - 1}")
+                    continue
+            except Exception as e:
+                print(f"❌ Failed label conversion: {e}")
+                continue
+
+            # ✅ Move to CUDA
+            try:
                 x, y = x.cuda().float(), y.cuda()
             except Exception as e:
-                print(f"❌ CUDA transfer failed: {e}")
-                print("🧪 y:", y)
+                print(f"❌ CUDA move failed: {e}")
+                print("🧾 y:", y)
                 continue
 
             batch_size = x.size(0)
             device = x.device
 
+            # 🔁 Predict safely
             try:
                 featurizer_params = model.featurizer.forward.__code__.co_varnames
                 if 'edge_index' in featurizer_params and 'batch_size' in featurizer_params:
@@ -57,7 +70,9 @@ def compute_accuracy(model, loader):
             correct += (preds.argmax(1) == y).sum().item()
             total += y.size(0)
 
-    return correct / total if total > 0 else 0.0
+    acc = correct / total if total > 0 else 0.0
+    print(f"✅ Final accuracy: {acc:.4f}")
+    return acc
 
 def extract_features_labels(model, loader):
     model.eval()
