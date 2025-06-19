@@ -1,5 +1,3 @@
-# eval/run_metrics.py
-
 import sys
 import os
 sys.path.append(os.path.abspath("."))
@@ -9,10 +7,11 @@ from pathlib import Path
 import torch
 import pickle
 
-# ✅ Add this
+# ✅ Required imports
 from utils.util import get_args
+from datautil.getdataloader_single import get_act_dataloader
+from alg import alg  # Also needed for `alg.get_algorithm_class`
 
-# ✅ All other imports
 from eval.metrics import (
     compute_accuracy, compute_silhouette, compute_davies_bouldin,
     compute_h_divergence, extract_features_labels, plot_metrics
