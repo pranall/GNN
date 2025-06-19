@@ -2,20 +2,22 @@
 
 import sys
 import os
-sys.path.append(os.path.abspath("."))  
+sys.path.append(os.path.abspath("."))  # ✅ Ensure correct base path
 
 import argparse
 from pathlib import Path
 import torch
 import pickle
 
-# Now imports will work
+# ✅ Import after sys.path is updated
 from eval.metrics import (
     compute_accuracy, compute_silhouette, compute_davies_bouldin,
     compute_h_divergence, extract_features_labels, plot_metrics
 )
+from utils.util import get_args
+from datautil.getdataloader_single import get_act_dataloader
+from alg import alg
 
-sys.path.append('./')
 
 def main():
     parser = argparse.ArgumentParser()
@@ -24,27 +26,32 @@ def main():
     parser.add_argument('--dataset', type=str, default='emg')
     args_extra = parser.parse_args()
 
+    # ✅ Load original args
     args = get_args()
-    args.num_classes = 36
+    args.num_classes = 36  # ✅ Use 36 for EMG full labels
     args.data_dir = './data/'
-    args.dataset = 'emg'
+    args.dataset = args_extra.dataset
     args.output = args_extra.output_dir
     args.test_envs = [args_extra.test_env]
     args.use_gnn = True
     args.layer = 'ln'
 
+    # ✅ Load data
     train_loader, _, _, target_loader, _, _, _ = get_act_dataloader(args)
 
+    # ✅ Load model
     algorithm_class = alg.get_algorithm_class(args.algorithm)
     model = algorithm_class(args).cuda()
     model.eval()
 
+    # ✅ Load history (optional)
     history_path = Path(args.output) / "training_history.pkl"
     history = {}
     if history_path.exists():
         with open(history_path, "rb") as f:
             history = pickle.load(f)
 
+    # ✅ Evaluation
     print("\n=== Evaluation Metrics on Target Domain ===")
     print("Test Accuracy (OOD):", compute_accuracy(model, target_loader))
 
