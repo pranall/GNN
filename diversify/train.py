@@ -20,7 +20,7 @@ from datautil.getdataloader_single import get_act_dataloader
 def main(args):
     s = print_args(args, [])
     set_random_seed(args.seed)
-
+    args.num_classes = 36
     print_environ()
     print(s)
     if args.latent_domain_num < 6:
