@@ -2,6 +2,26 @@ import numpy as np
 import torch
 from torch_geometric.data import Batch
 
+class combindataset(mydataset):
+    def __init__(self, args, datalist):
+        super(combindataset, self).__init__(args)
+        self.domain_num = len(datalist)
+        self.loader = datalist[0].loader
+        xlist = [item.x for item in datalist]
+        cylist = [item.labels for item in datalist]
+        dylist = [item.dlabels for item in datalist]
+        pcylist = [item.pclabels for item in datalist]
+        pdylist = [item.pdlabels for item in datalist]
+        self.dataset = datalist[0].dataset
+        self.task = datalist[0].task
+        self.transform = datalist[0].transform
+        self.target_transform = datalist[0].target_transform
+        self.x = torch.vstack(xlist)
+        self.labels = np.hstack(cylist)
+        self.dlabels = np.hstack(dylist)
+        self.pclabels = np.hstack(pcylist) if pcylist[0] is not None else None
+        self.pdlabels = np.hstack(pdylist) if pdylist[0] is not None else None
+        
 class GraphDatasetMixin:
     """Mixin class for graph data support"""
     def __init__(self):
