@@ -106,7 +106,7 @@ def main(args):
             ]], colwidth=15)
 
     # Final output
-    print(f'Best Valid Acc: {max(history["valid_acc"]:.4f}')
+    print(f'Best Valid Acc: {max(history["valid_acc"]):.4f}')
     print(f'Final Target Acc: {history["target_acc"][-1]:.4f}')
     plot_metrics({'training': history})
 
