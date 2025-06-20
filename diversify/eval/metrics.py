@@ -1,121 +1,71 @@
 import torch
-import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import silhouette_score, davies_bouldin_score
-import matplotlib.pyplot as plt
+from scipy.spatial.distance import jensenshannon
 import os
 
-# Force synchronous CUDA error reporting for easier debugging
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-
-# 🔍 Initial label sanity check
-y_all = np.load('/content/GNN/diversify/data/emg/emg_y.npy')
-print("✅ Unique labels in dataset:", np.unique(y_all))
-print("🔢 Max label in dataset:", int(np.max(y_all)))
-
-
 def compute_accuracy(model, loader):
+    """GNN-compatible accuracy calculation"""
     model.eval()
-    correct, total = 0, 0
+    correct = total = 0
     with torch.no_grad():
         for batch in loader:
-            x, y = batch[0], batch[1]
-
-            # 🧾 Show dtype before any operation
-            print("🧾 y original dtype:", y.dtype)
-
-            # 🔁 Convert labels properly
             try:
-                y = y.type(torch.LongTensor)  # Ensure long type for classification
-                y = y.to(x.device)             # Move to same device as input
-                print("✅ y converted dtype:", y.dtype)
-
-                # 🚨 Check for invalid label values
-                if y.min() < 0 or y.max() >= model.args.num_classes:
-                    print(f"⚠️ Label out of range: min={y.min().item()} max={y.max().item()} (expected 0 to {model.args.num_classes - 1})")
-                    continue
-            except Exception as e:
-                print(f"❌ Label handling error: {e}")
-                print("🧾 y content:", y)
-                continue
-
-            # ✅ Convert x
-            try:
-                x = x.cuda().float()
-            except Exception as e:
-                print(f"❌ x CUDA move failed: {e}")
-                continue
-
-            batch_size = x.size(0)
-            device = x.device
-
-            try:
-                featurizer_params = model.featurizer.forward.__code__.co_varnames
-                if 'edge_index' in featurizer_params and 'batch_size' in featurizer_params:
-                    edge_index = torch.tensor([
-                        list(range(batch_size - 1)),
-                        list(range(1, batch_size))
-                    ], dtype=torch.long).to(device)
-                    preds = model.predict(x, edge_index=edge_index, batch_size=batch_size)
-                else:
+                # Handle both graph and non-graph data
+                if hasattr(batch, 'edge_index'):  # PyG Data object
+                    x, y = batch.x, batch.y
+                    edge_index, batch_idx = batch.edge_index, batch.batch
+                    preds = model.predict(x, edge_index, batch_idx)
+                else:  # Traditional batch
+                    x, y = batch[0].cuda().float(), batch[1].long().cuda()
                     preds = model.predict(x)
+                
+                correct += (preds.argmax(1) == y).sum().item()
+                total += y.size(0)
             except Exception as e:
-                print(f"🚨 Prediction failed: {e}")
+                print(f"⚠️ Accuracy calc error: {e}")
                 continue
-
-            correct += (preds.argmax(1) == y).sum().item()
-            total += y.size(0)
-
-    acc = correct / total if total > 0 else 0.0
-    print(f"✅ Final accuracy: {acc:.4f}")
-    return acc
-
+    return correct / max(total, 1)
 
 def extract_features_labels(model, loader):
+    """Unified feature extraction for graphs and regular data"""
     model.eval()
-    all_feats, all_labels = [], []
+    feats, labels = [], []
     with torch.no_grad():
-        for x, y, *_ in loader:
+        for batch in loader:
             try:
-                x = x.cuda().float()
-                y = y.type(torch.LongTensor).cuda()
-                feats = model.extract_features(x)
-                all_feats.append(feats.cpu().numpy())
-                all_labels.append(y.cpu().numpy())
+                if hasattr(batch, 'edge_index'):
+                    x = batch.x.cuda().float()
+                    edge_index = batch.edge_index.cuda()
+                    batch_idx = batch.batch.cuda() if hasattr(batch, 'batch') else None
+                    feats.append(model.extract_features(x, edge_index, batch_idx).cpu())
+                    labels.append(batch.y.cpu())
+                else:
+                    x = batch[0].cuda().float()
+                    feats.append(model.extract_features(x).cpu())
+                    labels.append(batch[1].cpu())
             except Exception as e:
-                print(f"❌ Feature extraction failed: {e}")
+                print(f"⚠️ Feature extraction error: {e}")
                 continue
-    return np.concatenate(all_feats), np.concatenate(all_labels)
-
+    return torch.cat(feats).numpy(), torch.cat(labels).numpy()
 
 def compute_h_divergence(source_feats, target_feats, discriminator):
-    source = torch.tensor(source_feats).cuda()
-    target = torch.tensor(target_feats).cuda()
-    feats = torch.cat([source, target], dim=0)
-    labels = torch.cat([
-        torch.zeros(source.shape[0], dtype=torch.long),
-        torch.ones(target.shape[0], dtype=torch.long)
-    ]).cuda()
-    preds = discriminator(feats)
-    return F.cross_entropy(preds, labels).item()
+    """Improved domain divergence metric"""
+    source = torch.FloatTensor(source_feats).cuda()
+    target = torch.FloatTensor(target_feats).cuda()
+    domain_preds = discriminator(torch.cat([source, target]))
+    domains = torch.cat([
+        torch.zeros(len(source)),
+        torch.ones(len(target)))
+    ]).cuda().long()
+    return F.cross_entropy(domain_preds, domains).item()
 
+def compute_js_divergence(p, q):
+    """Additional metric for distribution alignment"""
+    p, q = np.asarray(p), np.asarray(q)
+    return jensenshannon(p, q) ** 2  # Scipy returns sqrt(JS)
 
-def compute_silhouette(features, labels):
-    try:
-        return silhouette_score(features, labels)
-    except Exception as e:
-        print(f"Silhouette error: {e}")
-        return -1
-
-
-def compute_davies_bouldin(features, labels):
-    try:
-        return davies_bouldin_score(features, labels)
-    except Exception as e:
-        print(f"Davies-Bouldin error: {e}")
-        return -1
-
-
+# Visualization (unchanged)
 def plot_metrics(history_dict, save_dir="plots"):
     os.makedirs(save_dir, exist_ok=True)
     for metric in ["train_acc", "valid_acc", "target_acc", "class_loss", "dis_loss"]:
