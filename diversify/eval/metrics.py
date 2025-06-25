@@ -1,86 +1,126 @@
+# diversify/eval/metrics.py
+
 import torch
-import numpy as np
-from sklearn.metrics import silhouette_score, davies_bouldin_score
-from scipy.spatial.distance import jensenshannon
-import os
 import torch.nn.functional as F
+import numpy as np
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from scipy.spatial.distance import jaccard
+from scipy.sparse import csr_matrix
 
 def compute_accuracy(model, loader):
-    """GNN-compatible accuracy calculation"""
+    """GNN‐compatible accuracy calculation."""
     model.eval()
-    correct = total = 0
+    correct, total = 0, 0
     with torch.no_grad():
         for batch in loader:
-            try:
-                # Handle both graph and non-graph data
-                if hasattr(batch, 'edge_index'):  # PyG Data object
-                    x, y = batch.x, batch.y
-                    edge_index, batch_idx = batch.edge_index, batch.batch
-                    preds = model.predict(x, edge_index, batch_idx)
-                else:  # Traditional batch
-                    x, y = batch[0].cuda().float(), batch[1].long().cuda()
-                    preds = model.predict(x)
-                
-                correct += (preds.argmax(1) == y).sum().item()
-                total += y.size(0)
-            except Exception as e:
-                print(f"⚠️ Accuracy calc error: {e}")
-                continue
+            # handle PyG Data objects vs tuples
+            if hasattr(batch, 'edge_index'):
+                x, y = batch.x.cuda(), batch.y.cuda()
+                preds = model(x, batch.edge_index.cuda(), getattr(batch, 'batch', None))
+            else:
+                x, y = batch[0].cuda().float(), batch[1].cuda().long()
+                preds = model.predict(x)
+            correct += (preds.argmax(1) == y).sum().item()
+            total += y.size(0)
     return correct / max(total, 1)
 
 def extract_features_labels(model, loader):
-    """Unified feature extraction for graphs and regular data"""
+    """Pull out (features, labels) from train/target loaders."""
     model.eval()
     feats, labels = [], []
     with torch.no_grad():
         for batch in loader:
-            try:
-                if hasattr(batch, 'edge_index'):
-                    x = batch.x.cuda().float()
-                    edge_index = batch.edge_index.cuda()
-                    batch_idx = batch.batch.cuda() if hasattr(batch, 'batch') else None
-                    feats.append(model.extract_features(x, edge_index, batch_idx).cpu())
-                    labels.append(batch.y.cpu())
-                else:
-                    x = batch[0].cuda().float()
-                    feats.append(model.extract_features(x).cpu())
-                    labels.append(batch[1].cpu())
-            except Exception as e:
-                print(f"⚠️ Feature extraction error: {e}")
-                continue
+            if hasattr(batch, 'edge_index'):
+                x = batch.x.cuda().float()
+                edge_index = batch.edge_index.cuda()
+                batch_idx = getattr(batch, 'batch', None)
+                if batch_idx is not None:
+                    batch_idx = batch_idx.cuda()
+                f = model.extract_features(x, edge_index, batch_idx).cpu()
+                l = batch.y.cpu()
+            else:
+                x = batch[0].cuda().float()
+                f = model.extract_features(x).cpu()
+                l = batch[1].cpu()
+            feats.append(f)
+            labels.append(l)
     return torch.cat(feats).numpy(), torch.cat(labels).numpy()
 
 def compute_h_divergence(source_feats, target_feats, discriminator):
-    """Improved domain divergence metric"""
-    source = torch.FloatTensor(source_feats).cuda()
-    target = torch.FloatTensor(target_feats).cuda()
-    domain_preds = discriminator(torch.cat([source, target], dim=0))
-
-    # Fix the mismatched brackets here:
+    """
+    H‐divergence: train a 2‐way discriminator on 
+    source vs target and report its CE loss.
+    """
+    device = next(discriminator.parameters()).device
+    src = torch.from_numpy(source_feats).float().to(device)
+    tgt = torch.from_numpy(target_feats).float().to(device)
+    inputs = torch.cat([src, tgt], dim=0)
+    with torch.no_grad():
+        logits = discriminator(inputs)
+    # domain 0=source, 1=target
     domains = torch.cat([
-        torch.zeros(len(source)),
-        torch.ones(len(target))
-    ], dim=0).cuda().long()
+        torch.zeros(len(src), dtype=torch.long),
+        torch.ones(len(tgt), dtype=torch.long)
+    ], dim=0).to(device)
+    return F.cross_entropy(logits, domains).item()
 
-    return F.cross_entropy(domain_preds, domains).item()
+def compute_gesture_separability(features, labels):
+    """
+    How well a simple LDA separates the gesture classes.
+    Returns cross‐validated LDA accuracy.
+    """
+    lda = LinearDiscriminantAnalysis()
+    return lda.fit(features, labels).score(features, labels)
 
-def compute_js_divergence(p, q):
-    """Additional metric for distribution alignment"""
-    p, q = np.asarray(p), np.asarray(q)
-    return jensenshannon(p, q) ** 2  # Scipy returns sqrt(JS)
+def compute_sensor_importance(model, loader):
+    """
+    Variance of first‐layer attention/weights across sensors.
+    For GAT‐style layers: average their att weights per sensor.
+    """
+    device = next(model.parameters()).device
+    weights = []
+    model.eval()
+    with torch.no_grad():
+        for batch in loader:
+            if hasattr(batch, 'edge_index'):
+                x = batch.x.cuda().float()
+                ei = batch.edge_index.cuda()
+                # assume conv1 supports return_attention_weights
+                conv1 = getattr(model.featurizer, 'conv1', None)
+                if conv1 is None:
+                    break
+                out, att = conv1(x, ei, return_attention_weights=True)
+                # att is a tuple (edge_index, alpha)
+                alpha = att[1]  # [num_edges]
+                # average alpha per source‐node
+                src = att[0][0]
+                per_node = torch.zeros(model.featurizer.in_features, device=device)
+                per_node = per_node.scatter_add(0, src, alpha)
+                weights.append(per_node.cpu())
+    if not weights:
+        return 0.0
+    all_w = torch.stack(weights)
+    return all_w.var(dim=0).mean().item()
 
-# Visualization (unchanged)
-def plot_metrics(history_dict, save_dir="plots"):
-    os.makedirs(save_dir, exist_ok=True)
-    for metric in ["train_acc", "valid_acc", "target_acc", "class_loss", "dis_loss"]:
-        plt.figure()
-        for label, values in history_dict.items():
-            if metric in values:
-                plt.plot(values[metric], label=label)
-        plt.title(f"{metric} over Epochs")
-        plt.xlabel("Epoch")
-        plt.ylabel(metric)
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(f"{save_dir}/{metric}.png")
-        plt.close()
+def compute_edge_consistency(loader):
+    """
+    Stability of the inferred graph across samples.
+    Compares adjacency patterns via Jaccard.
+    """
+    adjs = []
+    for batch in loader:
+        if hasattr(batch, 'edge_index'):
+            ei = batch.edge_index.cpu().numpy()
+            n = batch.num_nodes
+            mat = csr_matrix(
+                (np.ones(ei.shape[1]), (ei[0], ei[1])),
+                shape=(n, n)
+            )
+            adjs.append(mat)
+    scores = []
+    for i in range(len(adjs)):
+        for j in range(i+1, len(adjs)):
+            a1 = adjs[i].toarray().flatten()
+            a2 = adjs[j].toarray().flatten()
+            scores.append(1.0 - jaccard(a1, a2))
+    return float(np.mean(scores)) if scores else 0.0
