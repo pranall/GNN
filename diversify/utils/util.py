@@ -147,7 +147,7 @@ def get_args() -> argparse.Namespace:
                       help='Correlation threshold for graph construction')
     
     # Existing arguments...
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
     args = act_param_init(args)
     
     # Auto-configure batch size for GNN
