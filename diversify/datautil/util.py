@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch_geometric.data import Data, Batch
+from torch.utils.data import Dataset
 
 class GraphDatasetMixin:
     """Enhanced mixin for graph data support with EMG-specific features"""
@@ -145,3 +146,23 @@ def get_graph_metrics(batch):
             ).float().mean().item() if hasattr(batch, 'domain') else None
         })
     return metrics
+    
+class subdataset(Dataset):
+    """Light‐wrapper around another dataset + index list."""
+    def __init__(self, args, dataset, indices, transform=None):
+        self.dataset   = dataset
+        self.indices   = np.array(indices, dtype=np.int64)
+        self.transform = transform
+    def __len__(self):
+        return len(self.indices)
+    def __getitem__(self, idx):
+        real_idx = self.indices[idx]
+        item = self.dataset[real_idx]
+        # if it's a PyG Data it comes back whole
+        if hasattr(item, 'edge_index'):
+            return item
+        # else it's a tuple (x,c,p,s,pd,idx,[edge])
+        # preserve the real_idx override at position 5
+        out = list(item)
+        out[5] = real_idx
+        return tuple(out)
