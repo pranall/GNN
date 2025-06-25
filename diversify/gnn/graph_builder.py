@@ -5,36 +5,42 @@ from torch_geometric.data import Data
 
 def build_emg_graph(signal, threshold=0.4, dynamic_threshold=True):
     """
-    Build graph from EMG signal with adaptive thresholding.
+    Enhanced EMG graph builder with MYO armband-specific features.
     
     Args:
-        signal: np.ndarray of shape (T, C) — time steps x channels
-        threshold: float — baseline correlation threshold
-        dynamic_threshold: bool — auto-adjust threshold if no edges found
+        signal: (T, 8) array for MYO's 8 sensors
+        threshold: Correlation threshold (0.3-0.5 works best for EMG)
     
     Returns:
-        Data: PyG Data object with x, edge_index, edge_attr
+        Data: PyG Data object with:
+        - x: (8, T) normalized sensor readings
+        - edge_index: (2, E) connectivity
+        - edge_attr: (E,) correlation strengths
     """
-    assert signal.ndim == 2, "Input must be 2D (T, C)"
+    assert signal.shape[1] == 8, "MYO armband requires 8 channels"
     
-    # 1. Compute dynamic time warping (DTW) or correlation
-    corr = np.corrcoef(signal.T)
-    dist = 1 - np.abs(corr)  # Distance metric
+    # 1. Compute sensor correlations
+    corr = np.corrcoef(signal.T)  # (8,8)
+    np.fill_diagonal(corr, 0)  # Remove self-loops
     
-    # 2. Adaptive thresholding
+    # 2. Adaptive thresholding (ensure minimum connectivity)
     if dynamic_threshold:
-        while True:
-            edges = np.argwhere(dist < threshold)
-            if len(edges) > 0 or threshold >= 1.0:
+        for _ in range(5):  # Max 5 attempts
+            edges = np.argwhere(np.abs(corr) > threshold)
+            if len(edges) >= 8:  # At least 1 edge per sensor
                 break
-            threshold += 0.1
+            threshold *= 0.9  # Reduce threshold
+        
+    # 3. Normalize features
+    x = torch.FloatTensor(signal.T)  # (8, T)
+    x = (x - x.mean(dim=1, keepdim=True)) / (x.std(dim=1, keepdim=True) + 1e-8)
     
-    # 3. Create PyG Data object
-    edge_index = torch.tensor(edges.T, dtype=torch.long)
-    edge_attr = torch.tensor(1 - dist[edges[:,0], edges[:,1]], dtype=torch.float)
+    # 4. Build graph
+    edge_attr = torch.FloatTensor(np.abs(corr[edges[:,0], edges[:,1]]))
     
     return Data(
-        x=torch.tensor(signal, dtype=torch.float),
-        edge_index=edge_index,
-        edge_attr=edge_attr
+        x=x,
+        edge_index=torch.LongTensor(edges.T).contiguous(),
+        edge_attr=edge_attr,
+        num_nodes=8
     )
