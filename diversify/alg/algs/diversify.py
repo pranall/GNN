@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from torch_geometric.data import Data
 from collections import Counter
+from alg.algs.base import Algorithm
 
 class Diversify(Algorithm):
     def __init__(self, args):
