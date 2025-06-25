@@ -5,9 +5,11 @@ import os
 import numpy as np
 import torch
 from torch_geometric.data import Data
+
+# load raw EMG arrays (features + labels)
 from datautil.actdata.util import loaddata_from_numpy
-from datautil.util import mydataset, graph_collate_fn
-from datautil.actdata.util import Nmax  # ← correct import
+# bring in the base dataset class, the collate helper, and Nmax from the top-level util
+from datautil.util import mydataset, graph_collate_fn, Nmax
 
 class ActList(mydataset):
     def __init__(
