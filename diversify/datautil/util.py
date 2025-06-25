@@ -67,15 +67,54 @@ class mydataset(GraphDatasetMixin):
             item.append(self.edge_indices[index])
         return tuple(item)
 
+import torch
+from torch_geometric.data import Data, Batch
+
 def graph_collate_fn(batch):
-    """Handle both graph and non-graph batches"""
-    if isinstance(batch[0], (tuple, list)) and len(batch[0]) > 6:  # Has edge_index
-        return Batch.from_data_list([Data(
-            x=item[0], 
-            y=item[1], 
-            edge_index=item[6],
-            domain=item[2],
-            pclabel=item[3],
-            pdlabel=item[4]
-        ) for item in batch])
-    return torch.utils.data.default_collate(batch)
+    """Unified collate function handling both graph and non-graph EMG data"""
+    # Case 1: PyG Data objects (pre-converted graphs)
+    if isinstance(batch[0], Data):
+        return Batch.from_data_list(batch)
+    
+    # Case 2: Tuple format with edge indices (legacy)
+    elif isinstance(batch[0], (tuple, list)) and len(batch[0]) >= 7:  # Has edge_index at [6]
+        graphs = []
+        for item in batch:
+            g = Data(
+                x=item[0].float(),  # EMG sensor readings
+                y=item[1].long(),   # Gesture labels
+                edge_index=item[6].long(),  # Graph connectivity
+                domain=item[2].long(),  # Source domain
+                pclabel=item[3].long() if item[3] is not None else None,
+                pdlabel=item[4].long() if item[4] is not None else None,
+                batch_idx=item[5] if len(item) > 5 else None  # Original sample index
+            )
+            graphs.append(g)
+        return Batch.from_data_list(graphs)
+    
+    # Case 3: Regular tensor batches (non-graph)
+    else:
+        return torch.utils.data.default_collate(batch)
+
+def get_graph_stats(batch):
+    """Extract graph statistics for debugging"""
+    stats = {}
+    if isinstance(batch, Batch):
+        stats.update({
+            'num_nodes': batch.num_nodes,
+            'num_edges': batch.num_edges,
+            'avg_degree': batch.num_edges / batch.num_nodes,
+            'has_isolated': (torch.bincount(batch.edge_index[0]) == 0).any().item()
+        })
+    return stats
+
+def validate_batch(batch):
+    """Sanity check for EMG graph batches"""
+    if isinstance(batch, Batch):
+        assert batch.x.dim() == 2, f"Node features must be 2D (got {batch.x.shape})"
+        assert batch.edge_index.dim() == 2, f"Edge_index must be 2D (got {batch.edge_index.shape})"
+        assert batch.y.dim() == 1, f"Labels must be 1D (got {batch.y.shape})"
+        
+        # MYO armband specific checks
+        if batch.x.size(1) != 8:
+            print(f"⚠️ Expected 8 sensors, got {batch.x.size(1)}")
