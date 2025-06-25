@@ -35,7 +35,7 @@ class mydataset(GraphDatasetMixin):
         self.labels = None     # Gesture labels
         self.dlabels = None    # Domain labels
         self.pclabels = None   # Pseudo-class labels  
-        self.pdlabels = None   # Pseudo-domain labels
+        self.pdlabels = None    # Pseudo-domain labels
         self.args = args
         self.sensor_count = 8  # MYO armband specific
         
