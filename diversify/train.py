@@ -1,149 +1,119 @@
-import sys, os
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-
-import time
+# train.py
+import time, sys, os
 import torch
+import torch.nn.functional as F
 
-from alg.opt import *
-from alg import alg, modelopera
-from utils.util import (
-    set_random_seed,
-    get_args,
-    print_row,
-    print_args,
-    train_valid_target_eval_names,
-    alg_loss_dict,
-    print_environ
-)
+from alg.opt import get_optimizer
+from alg.alg import get_algorithm_class
+from alg.modelopera import accuracy as compute_accuracy
+from utils.util import set_random_seed, get_args, print_row, print_environ
 from datautil.getdataloader_single import get_act_dataloader
-
-# now that 'eval' and 'gnn' are on the path:
 from gnn.graph_builder import build_emg_graph
 
-# metric helpers
+# The five metrics you requested:
 from eval.metrics import (
     extract_features_labels,
-    compute_silhouette,
-    compute_davies_bouldin,
     compute_h_divergence,
-    plot_metrics
+    compute_gesture_separability,
+    compute_sensor_importance,
+    compute_edge_consistency
 )
 
-# batch validation / graph stats
-from datautil.util import validate_emg_batch, get_graph_metrics
-
-
 def prepare_graph_data(batch, device):
-    """Convert batch to PyG Data object with edge_index."""
-    x, y, d = batch[0], batch[1], batch[4]
-    graph_data = build_emg_graph(x.cpu().numpy())
-    return (
-        graph_data.x.to(device),
-        graph_data.edge_index.to(device),
-        y.to(device),
-        d.to(device),
-        graph_data.batch.to(device) if hasattr(graph_data, 'batch') else None
-    )
+    # batch comes as a tuple: (x_tensor, y, domain, ..., index)
+    x_np = batch[0].cpu().numpy()        # shape: (B, C, 1, T)
+    y    = batch[1].to(device)
+    d    = batch[4].to(device)
+    g    = build_emg_graph(x_np)         # returns a PyG Data object
+    x    = g.x.to(device)
+    ei   = g.edge_index.to(device)
+    ba   = g.batch.to(device) if hasattr(g, 'batch') else None
+    return x, ei, y, d, ba
 
 def main(args):
-    # Initialization (unchanged)
     set_random_seed(args.seed)
-    args.num_classes = 36
     print_environ()
+    # adapt batch size heuristics
     if args.latent_domain_num < 6:
         args.batch_size = 32 * args.latent_domain_num
     else:
         args.batch_size = 16 * args.latent_domain_num
 
-    # Data loading
-    train_loader, train_loader_noshuffle, valid_loader, target_loader, _, _, _ = get_act_dataloader(args)
-    batch = next(iter(train_loader))
-    validate_emg_batch(batch)  # Will raise AssertionError if invalid
-    print("Graph stats:", get_graph_metrics(batch))
-    # Model setup
-    algorithm_class = alg.get_algorithm_class(args.algorithm)
-    algorithm = algorithm_class(args).cuda()
-    algorithm.train()
-    
-    # Optimizers
-    optd = get_optimizer(algorithm, args, nettype='Diversify-adv')
-    opt = get_optimizer(algorithm, args, nettype='Diversify-cls')
-    opta = get_optimizer(algorithm, args, nettype='Diversify-all')
+    # load data
+    train_loader, train_loader_nosf, valid_loader, target_loader, _, _, _ = get_act_dataloader(args)
 
-    # Metrics history
-    history = {
-        'train_acc': [], 'valid_acc': [], 'target_acc': [],
-        'silhouette': [], 'davies_bouldin': [], 'h_divergence': []
-    }
+    # build & cuda model
+    Alg = get_algorithm_class(args.algorithm)
+    model = Alg(args).cuda().train()
 
-    for round in range(args.max_epoch):
-        print(f'\n========ROUND {round}========')
-        
-        # Feature Update Phase
-        print('====Feature update====')
-        for step in range(args.local_epoch):
-            for data in train_loader:
-                x, edge_index, y, d, batch = prepare_graph_data(data, 'cuda')
-                loss_result = algorithm.update_a((x, y, None, None, d), opta)
-            print_row([step, loss_result['class']], colwidth=15)
+    # optimizers
+    opt_d = get_optimizer(model, args, nettype='Diversify-adv')
+    opt_c = get_optimizer(model, args, nettype='Diversify-cls')
+    opt_a = get_optimizer(model, args, nettype='Diversify-all')
 
-        # Domain Characterization
-        print('====Latent domain characterization====')
-        for step in range(args.local_epoch):
-            for data in train_loader:
-                x, edge_index, y, d, batch = prepare_graph_data(data, 'cuda')
-                loss_result = algorithm.update_d((x, y, None, None, d), optd)
-            print_row([step, loss_result['total'], loss_result['dis'], loss_result['ent']], colwidth=15)
+    history = []
 
-        algorithm.set_dlabel(train_loader)
+    for epoch in range(args.max_epoch):
+        print(f"\n======== EPOCH {epoch} ========")
 
-        # Main Training Loop
-        print('====Domain-invariant feature learning====')
-        sss = time.time()
-        for step in range(args.local_epoch):
-            for data in train_loader:
-                x, edge_index, y, d, batch = prepare_graph_data(data, 'cuda')
-                step_vals = algorithm.update((x, y, None, None, d), opt)
+        # 1) Feature update (abottleneck/classifier)
+        for _ in range(args.local_epoch):
+            for batch in train_loader:
+                x, ei, y, d, ba = prepare_graph_data(batch, 'cuda')
+                model.update_a((x, y, None, None, d), opt_a)
 
-            # Evaluation
-            results = {
-                'epoch': step,
-                'train_acc': modelopera.accuracy(algorithm, train_loader_noshuffle, None),
-                'valid_acc': modelopera.accuracy(algorithm, valid_loader, None),
-                'target_acc': modelopera.accuracy(algorithm, target_loader, None),
-                'total_cost_time': time.time() - sss
-            }
-            results.update({f'{k}_loss': step_vals[k] for k in alg_loss_dict(args)})
+        # 2) Latent-domain characterization
+        for _ in range(args.local_epoch):
+            for batch in train_loader:
+                x, ei, y, d, ba = prepare_graph_data(batch, 'cuda')
+                model.update_d((x, y, None, None, d), opt_d)
+        model.set_dlabel(train_loader)
 
-            # Graph Metrics (New)
-            feats, labels = extract_features_labels(algorithm, train_loader)
-            results.update({
-                'silhouette': compute_silhouette(feats, labels),
-                'davies_bouldin': compute_davies_bouldin(feats, labels),
-                'h_divergence': compute_h_divergence(
-                    feats[:len(feats)//2], feats[len(feats)//2:], algorithm.discriminator)
-            })
-            
-            # Update history
-            for k in history.keys():
-                if k in results:
-                    history[k].append(results[k])
+        # 3) Domain-invariant feature learning
+        for _ in range(args.local_epoch):
+            for batch in train_loader:
+                x, ei, y, d, ba = prepare_graph_data(batch, 'cuda')
+                model.update((x, y, None, None, d), opt_c)
 
-            print_row([results[k] for k in [
-                'epoch', 'train_acc', 'valid_acc', 'target_acc',
-                'class_loss', 'dis_loss', 'silhouette', 'total_cost_time'
-            ]], colwidth=15)
+        # 4) Gather all metrics
+        train_acc  = compute_accuracy(model, train_loader_nosf, None)
+        valid_acc  = compute_accuracy(model, valid_loader,   None)
+        target_acc = compute_accuracy(model, target_loader,  None)
 
-    # Final output
-    print(f'Best Valid Acc: {max(history["valid_acc"]):.4f}')
-    print(f'Final Target Acc: {history["target_acc"][-1]:.4f}')
-    plot_metrics({'training': history})
+        feats, labels = extract_features_labels(model, train_loader)
+        h_div        = compute_h_divergence(feats, feats[len(feats)//2:], model.discriminator)
+        gest_sep     = compute_gesture_separability(feats, labels)
+        sens_imp     = compute_sensor_importance(model, train_loader)
+        edge_cons    = compute_edge_consistency(train_loader)
 
-if __name__ == '__main__':
+        # print them in a nice row
+        print_row([
+            epoch,
+            f"{train_acc:.4f}", f"{valid_acc:.4f}", f"{target_acc:.4f}",
+            f"{h_div:.4f}", f"{gest_sep:.4f}",
+            f"{sens_imp:.4f}", f"{edge_cons:.4f}"
+        ], colwidth=12, latex=False)
+
+        history.append({
+            'train_acc': train_acc,
+            'valid_acc': valid_acc,
+            'target_acc': target_acc,
+            'h_divergence': h_div,
+            'gesture_sep': gest_sep,
+            'sensor_importance': sens_imp,
+            'edge_consistency': edge_cons
+        })
+
+    # Optionally plot/save history
+    plot_dir = os.path.join(args.output, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+    from eval.metrics import plot_metrics
+    plot_metrics({'run': history}, save_dir=plot_dir)
+    print(f"\nAll done! Plots → {plot_dir}")
+
+if __name__ == "__main__":
     args = get_args()
-    # if the user selects the 'gnn' variant, 
-    # flip on the GNN‐mode flag and then fall back to the
-    # standard Diversify class (which checks args.use_gnn)
+    # if you invoked with --algorithm gnn, flip the flag and still use Diversify
     if args.algorithm.lower() == 'gnn':
         args.use_gnn = True
         args.algorithm = 'diversify'
