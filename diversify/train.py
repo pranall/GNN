@@ -6,6 +6,9 @@ from utils.util import set_random_seed, get_args, print_row, print_args, train_v
 from datautil.getdataloader_single import get_act_dataloader
 from gnn.graph_builder import build_emg_graph
 from datautil.util import validate_emg_batch, get_graph_metrics
+import sys
+import os
+sys.path.append(os.path.abspath('.'))
 
 batch = next(iter(train_loader))
 validate_emg_batch(batch)  # Will raise AssertionError if invalid
