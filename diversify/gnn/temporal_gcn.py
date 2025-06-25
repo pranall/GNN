@@ -1,37 +1,47 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, TemporalConv
-from torch_geometric.utils import to_dense_batch
+from torch_geometric.nn import GATv2Conv  # Better than GCN for EMG
+from torch.nn import LSTM
 
 class TemporalGCN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=2, dropout=0.3):
-        super(TemporalGCN, self).__init__()
-        self.convs = nn.ModuleList()
-        self.convs.append(GCNConv(input_dim, hidden_dim))
-        for _ in range(num_layers - 1):
-            self.convs.append(GCNConv(hidden_dim, hidden_dim))
+    def __init__(self, input_dim, hidden_dim=64, output_dim=128, heads=4):
+        super().__init__()
+        # Spatial aggregation
+        self.conv1 = GATv2Conv(
+            input_dim, hidden_dim, 
+            heads=heads, 
+            edge_dim=1,  # Use correlation strength
+            dropout=0.3
+        )
         
-        # Temporal convolution for EMG time-series
-        self.temporal_conv = TemporalConv(hidden_dim, hidden_dim, kernel_size=3)
-        self.dropout = dropout
-        self.fc = nn.Linear(hidden_dim, output_dim)
+        # Temporal processing
+        self.lstm = LSTM(
+            hidden_dim*heads, hidden_dim,
+            bidirectional=True,
+            batch_first=True
+        )
+        
+        # Output projection
+        self.fc = nn.Sequential(
+            nn.Linear(hidden_dim*2, output_dim),
+            nn.ReLU(),
+            nn.Dropout(0.3)
+        )
+        
+        self.in_features = output_dim  # For downstream compatibility
 
-    def forward(self, x, edge_index, batch=None):
-        # Graph Convolution
-        for conv in self.convs:
-            x = conv(x, edge_index)
-            x = F.relu(x)
-            x = F.dropout(x, p=self.dropout, training=self.training)
+    def forward(self, x, edge_index, edge_attr=None, batch=None):
+        # Spatial aggregation
+        x = F.elu(self.conv1(x, edge_index, edge_attr))  # (N, heads*hidden)
         
-        # Temporal Processing
+        # Temporal processing
         if batch is not None:
-            x, mask = to_dense_batch(x, batch)  # [B, T, D]
-            x = self.temporal_conv(x)  # Temporal convolution
-            x = x.mean(dim=1)  # Global temporal pooling
+            x, _ = self.lstm(x.unsqueeze(0))  # (1, N, hidden*2)
+            x = x.squeeze(0)
         else:
-            x = x.unsqueeze(0)  # [1, N, D] if no batch
-            x = self.temporal_conv(x)
+            # Handle single sample
+            x, _ = self.lstm(x.unsqueeze(0))
             x = x.squeeze(0)
         
         return self.fc(x)
