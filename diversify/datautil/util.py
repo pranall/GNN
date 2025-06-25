@@ -1,120 +1,147 @@
 import numpy as np
 import torch
-from torch_geometric.data import Batch
+from torch_geometric.data import Data, Batch
 
-class combindataset(mydataset):
-    def __init__(self, args, datalist):
-        super(combindataset, self).__init__(args)
-        self.domain_num = len(datalist)
-        self.loader = datalist[0].loader
-        xlist = [item.x for item in datalist]
-        cylist = [item.labels for item in datalist]
-        dylist = [item.dlabels for item in datalist]
-        pcylist = [item.pclabels for item in datalist]
-        pdylist = [item.pdlabels for item in datalist]
-        self.dataset = datalist[0].dataset
-        self.task = datalist[0].task
-        self.transform = datalist[0].transform
-        self.target_transform = datalist[0].target_transform
-        self.x = torch.vstack(xlist)
-        self.labels = np.hstack(cylist)
-        self.dlabels = np.hstack(dylist)
-        self.pclabels = np.hstack(pcylist) if pcylist[0] is not None else None
-        self.pdlabels = np.hstack(pdylist) if pdylist[0] is not None else None
-        
 class GraphDatasetMixin:
-    """Mixin class for graph data support"""
+    """Enhanced mixin for graph data support with EMG-specific features"""
     def __init__(self):
         self.edge_indices = None
         self.batches = None
+        self.graphs = None  # Store full PyG Data objects
         
-    def set_graph_attributes(self, edge_indices, batches):
-        self.edge_indices = edge_indices
-        self.batches = batches
-
-class basedataset(GraphDatasetMixin):
-    def __init__(self, x, y):
-        super().__init__()
-        self.x = x
-        self.y = y
-        
-    def __getitem__(self, index):
-        if self.edge_indices is not None:
-            return self.x[index], self.y[index], self.edge_indices[index]
-        return self.x[index], self.y[index]
+    def set_graph_attributes(self, edge_indices=None, batches=None, graphs=None):
+        """Handle both legacy and PyG-native graph storage"""
+        if graphs is not None:
+            self.graphs = graphs
+            self.edge_indices = [g.edge_index for g in graphs]
+            self.batches = [g.batch if hasattr(g, 'batch') else None for g in graphs]
+        else:
+            self.edge_indices = edge_indices
+            self.batches = batches
 
 class mydataset(GraphDatasetMixin):
+    """Base dataset class with EMG-aware graph handling"""
     def __init__(self, args):
         super().__init__()
-        self.x = None
-        self.labels = None
-        self.dlabels = None
-        self.pclabels = None
-        self.pdlabels = None
+        self.x = None          # EMG sensor data
+        self.labels = None     # Gesture labels
+        self.dlabels = None    # Domain labels
+        self.pclabels = None   # Pseudo-class labels  
+        self.pdlabels = None   # Pseudo-domain labels
         self.args = args
+        self.sensor_count = 8  # MYO armband specific
         
     def __getitem__(self, index):
+        """Returns either graph or raw data based on initialization"""
+        # Base items
         item = [
             self.input_trans(self.x[index]),
             self.target_trans(self.labels[index]),
             self.target_trans(self.dlabels[index]),
             self.target_trans(self.pclabels[index]) if self.pclabels is not None else -1,
             self.target_trans(self.pdlabels[index]) if self.pdlabels is not None else -1,
-            index
+            index  # Original sample index
         ]
         
-        if self.edge_indices is not None:
+        # Graph mode additions
+        if self.graphs is not None:
+            return self.graphs[index]  # Return full PyG Data object
+        elif self.edge_indices is not None:
             item.append(self.edge_indices[index])
+            
         return tuple(item)
 
-import torch
-from torch_geometric.data import Data, Batch
+class combindataset(mydataset):
+    """Dataset combiner with graph-aware merging"""
+    def __init__(self, args, datalist):
+        super().__init__(args)
+        self.domain_num = len(datalist)
+        
+        # Combine all data fields
+        self.x = torch.vstack([d.x for d in datalist])
+        self.labels = np.hstack([d.labels for d in datalist])
+        self.dlabels = np.hstack([d.dlabels for d in datalist])
+        self.pclabels = np.hstack([d.pclabels for d in datalist]) if datalist[0].pclabels is not None else None
+        self.pdlabels = np.hstack([d.pdlabels for d in datalist]) if datalist[0].pdlabels is not None else None
+        
+        # Handle graph data merging
+        if all(hasattr(d, 'graphs') for d in datalist):
+            self.graphs = [g for d in datalist for g in d.graphs]
+            self.set_graph_attributes(graphs=self.graphs)
+        elif all(hasattr(d, 'edge_indices') for d in datalist):
+            self.edge_indices = [ei for d in datalist for ei in d.edge_indices]
+            self.batches = [b for d in datalist for b in d.batches]
 
 def graph_collate_fn(batch):
-    """Unified collate function handling both graph and non-graph EMG data"""
-    # Case 1: PyG Data objects (pre-converted graphs)
+    """Smart collator handling all EMG data formats"""
+    # Case 1: PyG Data objects (recommended)
     if isinstance(batch[0], Data):
-        return Batch.from_data_list(batch)
+        batch = Batch.from_data_list(batch)
+        batch.batch_idx = torch.arange(len(batch))  # Preserve original indices
+        return batch
     
-    # Case 2: Tuple format with edge indices (legacy)
-    elif isinstance(batch[0], (tuple, list)) and len(batch[0]) >= 7:  # Has edge_index at [6]
-        graphs = []
-        for item in batch:
-            g = Data(
-                x=item[0].float(),  # EMG sensor readings
-                y=item[1].long(),   # Gesture labels
-                edge_index=item[6].long(),  # Graph connectivity
-                domain=item[2].long(),  # Source domain
-                pclabel=item[3].long() if item[3] is not None else None,
-                pdlabel=item[4].long() if item[4] is not None else None,
-                batch_idx=item[5] if len(item) > 5 else None  # Original sample index
-            )
-            graphs.append(g)
-        return Batch.from_data_list(graphs)
-    
-    # Case 3: Regular tensor batches (non-graph)
-    else:
-        return torch.utils.data.default_collate(batch)
-
-def get_graph_stats(batch):
-    """Extract graph statistics for debugging"""
-    stats = {}
-    if isinstance(batch, Batch):
-        stats.update({
-            'num_nodes': batch.num_nodes,
-            'num_edges': batch.num_edges,
-            'avg_degree': batch.num_edges / batch.num_nodes,
-            'has_isolated': (torch.bincount(batch.edge_index[0]) == 0).any().item()
-        })
-    return stats
-
-def validate_batch(batch):
-    """Sanity check for EMG graph batches"""
-    if isinstance(batch, Batch):
-        assert batch.x.dim() == 2, f"Node features must be 2D (got {batch.x.shape})"
-        assert batch.edge_index.dim() == 2, f"Edge_index must be 2D (got {batch.edge_index.shape})"
-        assert batch.y.dim() == 1, f"Labels must be 1D (got {batch.y.shape})"
+    # Case 2: Legacy tuple format
+    elif isinstance(batch[0], (tuple, list)):
+        # Extract components
+        xs = [item[0] for item in batch]
+        ys = [item[1] for item in batch]
+        domains = [item[2] for item in batch]
+        pclabels = [item[3] for item in batch]
+        pdlabels = [item[4] for item in batch]
+        indices = [item[5] for item in batch]
         
-        # MYO armband specific checks
+        # Build graph batch if edge indices exist
+        if len(batch[0]) > 6:
+            edge_indices = [item[6] for item in batch]
+            graphs = [
+                Data(
+                    x=x.float(),
+                    y=y.long(),
+                    edge_index=eidx.long(),
+                    domain=d.long(),
+                    pclabel=pcl.long() if pcl != -1 else None,
+                    pdlabel=pdl.long() if pdl != -1 else None,
+                    batch_idx=idx
+                )
+                for x, y, d, pcl, pdl, idx, eidx in zip(
+                    xs, ys, domains, pclabels, pdlabels, indices, edge_indices
+                )
+            ]
+            return Batch.from_data_list(graphs)
+        
+        # Non-graph fallback
+        return torch.utils.data.default_collate(batch)
+    
+    # Case 3: Unknown format
+    raise ValueError(f"Unsupported batch type: {type(batch[0])}")
+
+def validate_emg_batch(batch):
+    """EMG-specific batch validation"""
+    if isinstance(batch, Batch):
+        # Shape checks
+        assert batch.x.dim() == 2, f"Features should be 2D (got {batch.x.shape})"
+        assert batch.y.dim() == 1, f"Labels should be 1D (got {batch.y.shape})"
+        
+        # MYO armband specific
         if batch.x.size(1) != 8:
-            print(f"⚠️ Expected 8 sensors, got {batch.x.size(1)}")
+            print(f"⚠️ Unexpected sensor count: {batch.x.size(1)} (expected 8)")
+        
+        # Graph connectivity checks
+        if batch.edge_index.size(1) == 0:
+            print("⚠️ Empty edge_index - check graph construction")
+            
+    return True
+
+def get_graph_metrics(batch):
+    """Compute EMG graph statistics"""
+    metrics = {}
+    if isinstance(batch, Batch):
+        metrics.update({
+            'sensors_used': batch.x.abs().mean(dim=0),  # Per-sensor activation
+            'edge_density': batch.num_edges / (batch.num_nodes ** 2),
+            'cross_domain_edges': (
+                batch.domain[batch.edge_index[0]] != 
+                batch.domain[batch.edge_index[1]]
+            ).float().mean().item() if hasattr(batch, 'domain') else None
+        })
+    return metrics
