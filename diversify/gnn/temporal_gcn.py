@@ -17,14 +17,14 @@ class TemporalGCN(nn.Module):
         
         # Temporal processing
         self.lstm = LSTM(
-            hidden_dim*heads, hidden_dim,
+            hidden_dim * heads, hidden_dim,
             bidirectional=True,
             batch_first=True
         )
         
         # Output projection
         self.fc = nn.Sequential(
-            nn.Linear(hidden_dim*2, output_dim),
+            nn.Linear(hidden_dim * 2, output_dim),
             nn.ReLU(),
             nn.Dropout(0.3)
         )
