@@ -120,4 +120,10 @@ def main(args):
 
 if __name__ == '__main__':
     args = get_args()
+    # if the user selects the 'gnn' variant, 
+    # flip on the GNN‐mode flag and then fall back to the
+    # standard Diversify class (which checks args.use_gnn)
+    if args.algorithm.lower() == 'gnn':
+        args.use_gnn = True
+        args.algorithm = 'diversify'
     main(args)
