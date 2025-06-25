@@ -10,7 +10,7 @@ from scipy.stats import pearsonr
 from scipy.sparse import csr_matrix
 from scipy.spatial.distance import jaccard
 
-sys.path.append(os.path.abspath("."))  # Make sure ./eval etc. are importable
+sys.path.append(os.path.abspath('.'))  # Make sure ./eval etc. are importable
 
 # Custom imports
 from utils.util import get_args
