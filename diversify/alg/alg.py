@@ -1,7 +1,3 @@
-# diversify/alg/alg.py
-# Copyright (c) Microsoft Corporation.
-# Licensed under the MIT License.
-
 from .algs.diversify import Diversify
 
 ALGORITHMS = [
