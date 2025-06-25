@@ -1,18 +1,31 @@
 import time
 import torch
+import sys, os
 from alg.opt import *
 from alg import alg, modelopera
-from utils.util import set_random_seed, get_args, print_row, print_args, train_valid_target_eval_names, alg_loss_dict, print_environ
+from utils.util import (
+    set_random_seed,
+    get_args,
+    print_row,
+    print_args,
+    train_valid_target_eval_names,
+    alg_loss_dict,
+    print_environ
+)
 from datautil.getdataloader_single import get_act_dataloader
-from gnn.graph_builder import build_emg_graph
-from datautil.util import validate_emg_batch, get_graph_metrics
-import sys
-import os
-sys.path.append(os.path.abspath('.'))
 
-batch = next(iter(train_loader))
-validate_emg_batch(batch)  # Will raise AssertionError if invalid
-print("Graph stats:", get_graph_metrics(batch))
+# metric helpers
+from eval.metrics import (
+    extract_features_labels,
+    compute_silhouette,
+    compute_davies_bouldin,
+    compute_h_divergence,
+    plot_metrics
+)
+
+# batch validation / graph stats
+from datautil.util import validate_emg_batch, get_graph_metrics
+sys.path.append(os.path.abspath('.'))
 
 def prepare_graph_data(batch, device):
     """Convert batch to PyG Data object with edge_index."""
@@ -38,7 +51,9 @@ def main(args):
 
     # Data loading
     train_loader, train_loader_noshuffle, valid_loader, target_loader, _, _, _ = get_act_dataloader(args)
-    
+    batch = next(iter(train_loader))
+    validate_emg_batch(batch)  # Will raise AssertionError if invalid
+    print("Graph stats:", get_graph_metrics(batch))
     # Model setup
     algorithm_class = alg.get_algorithm_class(args.algorithm)
     algorithm = algorithm_class(args).cuda()
