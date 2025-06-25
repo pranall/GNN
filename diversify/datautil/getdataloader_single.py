@@ -7,7 +7,6 @@ from datautil.util import graph_collate_fn
 import datautil.actdata.util as actutil
 from datautil.util import combindataset, subdataset
 import datautil.actdata.cross_people as cross_people
-from datautil.util import combindataset, subdataset, graph_collate_fn
 
 task_act = {
     'cross_people': cross_people,
