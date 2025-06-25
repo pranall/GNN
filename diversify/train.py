@@ -72,7 +72,8 @@ def main(args):
             'train_acc': compute_accuracy(model, train_noshuf),
             'valid_acc': compute_accuracy(model, valid_loader),
             'target_acc': compute_accuracy(model, target_loader),
-            'h_divergence': compute_h_divergence(...),  # Your implementation
+            'h_divergence': compute_h_divergence(train_loader, target_loader, model),  # Updated
+            'gesture_separability': compute_gesture_separability(...),  # Implement feature extraction
             'sensor_importance': compute_sensor_importance(model, train_loader)
         }
         print_row([metrics.values()], colwidth=12)
