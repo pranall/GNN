@@ -3,6 +3,13 @@ import torch
 from torch_geometric.data import Data, Batch
 from torch.utils.data import Dataset
 
+# Maximum person-IDs per dataset (needed by cross_people.py)
+Nmax = {
+    'emg':   36,
+    'pamap': 10,
+    'dsads':  8
+}
+
 class GraphDatasetMixin:
     """Enhanced mixin for graph data support with EMG-specific features"""
     def __init__(self):
