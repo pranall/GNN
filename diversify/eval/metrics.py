@@ -1,5 +1,3 @@
-# diversify/eval/metrics.py
-
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -13,7 +11,6 @@ def compute_accuracy(model, loader):
     correct, total = 0, 0
     with torch.no_grad():
         for batch in loader:
-            # handle PyG Data objects vs tuples
             if hasattr(batch, 'edge_index'):
                 x, y = batch.x.cuda(), batch.y.cuda()
                 preds = model(x, batch.edge_index.cuda(), getattr(batch, 'batch', None))
@@ -46,37 +43,36 @@ def extract_features_labels(model, loader):
             labels.append(l)
     return torch.cat(feats).numpy(), torch.cat(labels).numpy()
 
-def compute_h_divergence(source_feats, target_feats, discriminator):
+def compute_h_divergence(source_loader, target_loader, discriminator):
     """
     H‐divergence: train a 2‐way discriminator on 
     source vs target and report its CE loss.
     """
+    source_feats, _ = extract_features_labels(discriminator, source_loader)
+    target_feats, _ = extract_features_labels(discriminator, target_loader)
+    
     device = next(discriminator.parameters()).device
     src = torch.from_numpy(source_feats).float().to(device)
     tgt = torch.from_numpy(target_feats).float().to(device)
     inputs = torch.cat([src, tgt], dim=0)
+    
     with torch.no_grad():
         logits = discriminator(inputs)
-    # domain 0=source, 1=target
+    
     domains = torch.cat([
         torch.zeros(len(src), dtype=torch.long),
         torch.ones(len(tgt), dtype=torch.long)
     ], dim=0).to(device)
+    
     return F.cross_entropy(logits, domains).item()
 
 def compute_gesture_separability(features, labels):
-    """
-    How well a simple LDA separates the gesture classes.
-    Returns cross‐validated LDA accuracy.
-    """
+    """How well a simple LDA separates the gesture classes."""
     lda = LinearDiscriminantAnalysis()
     return lda.fit(features, labels).score(features, labels)
 
 def compute_sensor_importance(model, loader):
-    """
-    Variance of first‐layer attention/weights across sensors.
-    For GAT‐style layers: average their att weights per sensor.
-    """
+    """Variance of first‐layer attention/weights across sensors."""
     device = next(model.parameters()).device
     weights = []
     model.eval()
@@ -85,14 +81,11 @@ def compute_sensor_importance(model, loader):
             if hasattr(batch, 'edge_index'):
                 x = batch.x.cuda().float()
                 ei = batch.edge_index.cuda()
-                # assume conv1 supports return_attention_weights
                 conv1 = getattr(model.featurizer, 'conv1', None)
                 if conv1 is None:
                     break
                 out, att = conv1(x, ei, return_attention_weights=True)
-                # att is a tuple (edge_index, alpha)
                 alpha = att[1]  # [num_edges]
-                # average alpha per source‐node
                 src = att[0][0]
                 per_node = torch.zeros(model.featurizer.in_features, device=device)
                 per_node = per_node.scatter_add(0, src, alpha)
@@ -103,10 +96,7 @@ def compute_sensor_importance(model, loader):
     return all_w.var(dim=0).mean().item()
 
 def compute_edge_consistency(loader):
-    """
-    Stability of the inferred graph across samples.
-    Compares adjacency patterns via Jaccard.
-    """
+    """Stability of the inferred graph across samples."""
     adjs = []
     for batch in loader:
         if hasattr(batch, 'edge_index'):
