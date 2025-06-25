@@ -20,7 +20,7 @@ class Diversify(Algorithm):
         
         # Initialize networks
         self.featurizer = get_fea(args)
-        self.gnn_mode = args.algorithm.lower() == 'gnn'
+        self.gnn_mode = args.use_gnn
         
         # Domain characterization networks
         self.dbottleneck = common_network.feat_bottleneck(
