@@ -1,6 +1,9 @@
+import sys, os
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 import time
 import torch
-import sys, os
+
 from alg.opt import *
 from alg import alg, modelopera
 from utils.util import (
@@ -14,6 +17,9 @@ from utils.util import (
 )
 from datautil.getdataloader_single import get_act_dataloader
 
+# now that 'eval' and 'gnn' are on the path:
+from gnn.graph_builder import build_emg_graph
+
 # metric helpers
 from eval.metrics import (
     extract_features_labels,
@@ -25,7 +31,7 @@ from eval.metrics import (
 
 # batch validation / graph stats
 from datautil.util import validate_emg_batch, get_graph_metrics
-sys.path.append(os.path.abspath('.'))
+
 
 def prepare_graph_data(batch, device):
     """Convert batch to PyG Data object with edge_index."""
