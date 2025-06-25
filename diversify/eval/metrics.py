@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 from scipy.spatial.distance import jensenshannon
 import os
+import torch.nn.functional as F
 
 def compute_accuracy(model, loader):
     """GNN-compatible accuracy calculation"""
@@ -53,11 +54,14 @@ def compute_h_divergence(source_feats, target_feats, discriminator):
     """Improved domain divergence metric"""
     source = torch.FloatTensor(source_feats).cuda()
     target = torch.FloatTensor(target_feats).cuda()
-    domain_preds = discriminator(torch.cat([source, target]))
+    domain_preds = discriminator(torch.cat([source, target], dim=0))
+
+    # Fix the mismatched brackets here:
     domains = torch.cat([
         torch.zeros(len(source)),
-        torch.ones(len(target)))
-    ]).cuda().long()
+        torch.ones(len(target))
+    ], dim=0).cuda().long()
+
     return F.cross_entropy(domain_preds, domains).item()
 
 def compute_js_divergence(p, q):
