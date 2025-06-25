@@ -34,7 +34,7 @@ def accuracy(model, loader, weights=None):
             
             # Weighted accuracy
             w = weights.cuda() if weights is not None else torch.ones_like(y).float()
-            correct += ((preds.argmax(1) == y).float().mul(w).sum().item()
+            correct += ((preds.argmax(1) == y).float().mul(w).sum().item())
             total += w.sum().item()
     
     return correct / max(total, 1e-8)
