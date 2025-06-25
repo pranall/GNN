@@ -1,6 +1,3 @@
-# Copyright (c) Microsoft Corporation.
-# Licensed under the MIT License.
-
 import argparse
 
 def get_args():
@@ -34,6 +31,7 @@ def get_args():
                       choices=[0, 1], help='Deprecated: Use --algorithm GNN instead')
     parser.add_argument('--gnn_hidden_dim', type=int, default=64)
     parser.add_argument('--gnn_output_dim', type=int, default=128)
+    parser.add_argument('--gnn_heads', type=int, default=4)  # New parameter for GAT heads
     
     # Optimization
     parser.add_argument('--lr', type=float, default=1e-3)
@@ -66,7 +64,8 @@ def get_params():
             '--lam',
             '--algorithm',  # Replaces --use_gnn
             '--gnn_hidden_dim',
-            '--gnn_output_dim'
+            '--gnn_output_dim',
+            '--gnn_heads'  # New parameter for GAT heads
         ]
     }
 
@@ -78,7 +77,8 @@ def get_params():
             [0],                         # lam
             ['Diversify', 'GNN'],        # algorithm (replaces use_gnn)
             [16, 32, 64],                # gnn_hidden_dim
-            [64, 128, 256]              # gnn_output_dim
+            [64, 128, 256],              # gnn_output_dim
+            [2, 4, 8]                    # gnn_heads
         ]
     }
     return paramname, paramlist
