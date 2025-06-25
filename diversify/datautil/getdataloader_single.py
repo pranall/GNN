@@ -7,87 +7,79 @@ from datautil.util import graph_collate_fn
 import datautil.actdata.util as actutil
 from datautil.util import combindataset, subdataset
 import datautil.actdata.cross_people as cross_people
+from datautil.util import combindataset, subdataset, graph_collate_fn
 
-task_act = {'cross_people': cross_people}
+task_act = {
+    'cross_people': cross_people,
+}
 
 def get_dataloader(args, tr, val, tar):
-    """GNN-compatible data loader with dynamic batch handling"""
-    collate_fn = graph_collate_fn if args.use_gnn else None
-    
-    # Train loaders (shuffled/non-shuffled)
+    """Return (train, train_noshuffle, valid, target) DataLoaders."""
+    collate = graph_collate_fn if args.use_gnn else None
+
     train_loader = DataLoader(
-        dataset=tr,
-        batch_size=args.batch_size,
-        num_workers=args.N_WORKERS,
-        shuffle=True,
-        collate_fn=collate_fn
+        tr, batch_size=args.batch_size, shuffle=True,
+        num_workers=args.N_WORKERS, collate_fn=collate
     )
-    
     train_loader_noshuffle = DataLoader(
-        dataset=tr,
-        batch_size=args.batch_size,
-        num_workers=args.N_WORKERS,
-        shuffle=False,
-        collate_fn=collate_fn
+        tr, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.N_WORKERS, collate_fn=collate
+    )
+    valid_loader = DataLoader(
+        val, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.N_WORKERS, collate_fn=collate
+    )
+    target_loader = DataLoader(
+        tar, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.N_WORKERS, collate_fn=collate
     )
 
-    # Validation and target loaders
-    valid_loader = DataLoader(
-        dataset=val,
-        batch_size=args.batch_size,
-        num_workers=args.N_WORKERS,
-        shuffle=False,
-        collate_fn=collate_fn
-    )
-    
-    target_loader = DataLoader(
-        dataset=tar,
-        batch_size=args.batch_size,
-        num_workers=args.N_WORKERS,
-        shuffle=False,
-        collate_fn=collate_fn
-    )
-    
-    return train_loader, train_loader_noshuffle, valid_loader, target_loader, tr, val, tar
+    return train_loader, train_loader_noshuffle, valid_loader, target_loader
+
 
 def get_act_dataloader(args):
-    """Main loader with GNN graph conversion"""
-    source_datasets = []
-    target_datasets = []
-    pcross_act = task_act[args.task]
-    tmpp = args.act_people[args.dataset]
-    args.domain_num = len(tmpp)
+    """Load EMG data (cross_people), wrap in ActList, combine & split."""
+    # ensure N_WORKERS is set
+    if not hasattr(args, 'N_WORKERS'):
+        args.N_WORKERS = 4
 
-    # Load and convert datasets
-    for i, item in enumerate(tmpp):
-        data_root = os.path.abspath(args.data_dir)
-        dataset = pcross_act.ActList(
-            args,
-            args.dataset,
-            data_root,
-            item,
-            i,
-            transform=actutil.act_train()
+    src_datasets = []
+    tgt_datasets = []
+
+    pcross = task_act[args.task]
+    people_groups = args.act_people[args.dataset]
+    args.domain_num = len(people_groups)
+
+    # build one ActList per group
+    for grp_idx, people in enumerate(people_groups):
+        ds = pcross.ActList(
+            args, args.dataset, args.data_dir,
+            people_group=people,
+            group_num=grp_idx,
+            transform=actutil.act_train(),
         )
-        
-        if args.use_gnn:
-            dataset.convert_to_graph(
-                threshold=getattr(args, 'graph_threshold', 0.3),
-                sensor_layout='myo'  # MYO armband specific
-            )
-
-        if i in args.test_envs:
-            target_datasets.append(dataset)
+        if grp_idx in args.test_envs:
+            tgt_datasets.append(ds)
         else:
-            source_datasets.append(dataset)
+            src_datasets.append(ds)
 
-    # Combine datasets with validation split
-    combined_source = combindataset(args, source_datasets)
-    indices = np.random.permutation(len(combined_source))
-    val_size = int(0.2 * len(combined_source))
-    
-    train_data = subdataset(args, combined_source, indices[val_size:])
-    val_data = subdataset(args, combined_source, indices[:val_size])
-    target_data = combindataset(args, target_datasets)
+    # combine all source into one big dataset
+    combined_src = combindataset(args, src_datasets)
 
-    return get_dataloader(args, train_data, val_data, target_data)
+    # train/val split
+    total = len(combined_src)
+    idx = np.arange(total)
+    np.random.seed(args.seed)
+    np.random.shuffle(idx)
+    val_size = int(0.2 * total)
+
+    val_idx   = idx[:val_size]
+    train_idx = idx[val_size:]
+
+    train_ds = subdataset(args, combined_src, train_idx)
+    valid_ds = subdataset(args, combined_src, val_idx)
+
+    # combine all target envs
+    combined_tgt = combindataset(args, tgt_datasets)
+
+    return get_dataloader(args, train_ds, valid_ds, combined_tgt)
