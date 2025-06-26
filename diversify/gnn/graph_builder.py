@@ -1,46 +1,65 @@
 import torch
 import numpy as np
+import itertools
 from scipy.spatial.distance import pdist, squareform
-from torch_geometric.data import Data
 
-def build_emg_graph(signal, threshold=0.4, dynamic_threshold=True):
+def build_correlation_graph(data_sample, threshold=0.3):
     """
-    Enhanced EMG graph builder with MYO armband-specific features.
+    Build edge_index from a single EMG sample of shape (T, C).
     
     Args:
-        signal: (T, 8) array for MYO's 8 sensors
-        threshold: Correlation threshold (0.3-0.5 works best for EMG)
-    
+        data_sample: np.ndarray of shape (T, C) — time steps x channels
+        threshold: float — minimum absolute correlation to form an edge
+
     Returns:
-        Data: PyG Data object with:
-        - x: (8, T) normalized sensor readings
-        - edge_index: (2, E) connectivity
-        - edge_attr: (E,) correlation strengths
+        edge_index: torch.LongTensor of shape [2, num_edges]
+        edge_weights: torch.FloatTensor of shape [num_edges]
     """
-    assert signal.shape[1] == 8, "MYO armband requires 8 channels"
+    assert len(data_sample.shape) == 2, "Input must be 2D (T, C)"
+    sensors = data_sample.shape[1]
+
+    # Compute correlation matrix with fallback
+    try:
+        corr = np.corrcoef(data_sample.T)
+    except:
+        corr = np.eye(sensors)
     
-    # 1. Compute sensor correlations
-    corr = np.corrcoef(signal.T)  # (8,8)
-    np.fill_diagonal(corr, 0)  # Remove self-loops
+    # Create edges and weights
+    edge_index = []
+    edge_weights = []
+    for i, j in itertools.product(range(sensors), repeat=2):
+        if i != j and abs(corr[i, j]) > threshold:
+            edge_index.append([i, j])
+            edge_weights.append(abs(corr[i, j]))
+
+    # Fallback: fully connected graph with uniform weights
+    if len(edge_index) == 0:
+        edge_index = [[i, j] for i in range(sensors) for j in range(sensors) if i != j]
+        edge_weights = [1.0] * len(edge_index)
+
+    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+    edge_weights = torch.tensor(edge_weights, dtype=torch.float32)
     
-    # 2. Adaptive thresholding (ensure minimum connectivity)
-    if dynamic_threshold:
-        for _ in range(5):  # Max 5 attempts
-            edges = np.argwhere(np.abs(corr) > threshold)
-            if len(edges) >= 8:  # At least 1 edge per sensor
-                break
-            threshold *= 0.9  # Reduce threshold
-        
-    # 3. Normalize features
-    x = torch.FloatTensor(signal.T)  # (8, T)
-    x = (x - x.mean(dim=1, keepdim=True)) / (x.std(dim=1, keepdim=True) + 1e-8)
+    return edge_index, edge_weights
+
+def build_distance_graph(data_sample, threshold=0.5):
+    """
+    Alternative graph builder using Euclidean distance.
+    """
+    dist_matrix = squareform(pdist(data_sample.T, 'euclidean'))
+    normalized_dist = 1 - (dist_matrix / dist_matrix.max())
     
-    # 4. Build graph
-    edge_attr = torch.FloatTensor(np.abs(corr[edges[:,0], edges[:,1]]))
+    edge_index = []
+    edge_weights = []
+    for i, j in itertools.product(range(data_sample.shape[1]), repeat=2):
+        if i != j and normalized_dist[i, j] > threshold:
+            edge_index.append([i, j])
+            edge_weights.append(normalized_dist[i, j])
     
-    return Data(
-        x=x,
-        edge_index=torch.LongTensor(edges.T).contiguous(),
-        edge_attr=edge_attr,
-        num_nodes=8
-    )
+    if len(edge_index) == 0:
+        edge_index = [[i, j] for i in range(data_sample.shape[1]) 
+                     for j in range(data_sample.shape[1]) if i != j]
+        edge_weights = [1.0] * len(edge_index)
+    
+    return torch.tensor(edge_index, dtype=torch.long).t().contiguous(), \
+           torch.tensor(edge_weights, dtype=torch.float32)
