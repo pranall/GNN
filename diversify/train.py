@@ -16,13 +16,22 @@ import argparse
 def prepare_graph_data(batch, device):
     """Optimized graph data preparation"""
     try:
-        x_np = batch[0].cpu().numpy().squeeze()  # Remove singleton dim (B, C, T)
+        # Handle both tuple-style and Data-style batches
+        if isinstance(batch, (list, tuple)):  # Traditional batch
+            x_np = batch[0].cpu().numpy().squeeze()  # (B, C, T)
+            y = batch[1]
+            d = batch[4] if len(batch) >=5 else None
+        else:  # PyG Data batch
+            x_np = batch.x.cpu().numpy().squeeze()
+            y = batch.y
+            d = getattr(batch, 'domain', None)
+        
         g = build_emg_graph(x_np)
         return (
             g.x.to(device),
             g.edge_index.to(device),
-            batch[1].to(device),  # y
-            batch[4].to(device),  # d
+            y.to(device),
+            d.to(device) if d is not None else None,
             g.batch.to(device) if hasattr(g, 'batch') else None
         )
     except Exception as e:
