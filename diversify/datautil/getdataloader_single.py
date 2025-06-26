@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader, Subset
 from torch_geometric.data import Data, Batch
 from datautil.actdata import cross_people as pcross_act
 from datautil import actdata as actutil
+from datautil.graph_utils import convert_to_graph
 
 # ==================== UTILS ====================
 
