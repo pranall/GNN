@@ -1,175 +1,198 @@
 import numpy as np
 import torch
-from torch_geometric.data import Data, Batch
-from torch.utils.data import Dataset
+from torch_geometric.data import Data
 
-# Maximum person-IDs per dataset (needed by cross_people.py)
-Nmax = {
-    'emg':   36,
-    'pamap': 10,
-    'dsads':  8
-}
+def Nmax(args, d):
+    """Find the position index for a given domain"""
+    for i in range(len(args.test_envs)):
+        if d < args.test_envs[i]:
+            return i
+    return len(args.test_envs)
 
-class GraphDatasetMixin:
-    """Enhanced mixin for graph data support with EMG-specific features"""
-    def __init__(self):
-        self.edge_indices = None
-        self.batches = None
-        self.graphs = None  # Store full PyG Data objects
-        
-    def set_graph_attributes(self, edge_indices=None, batches=None, graphs=None):
-        """Handle both legacy and PyG-native graph storage"""
-        if graphs is not None:
-            self.graphs = graphs
-            self.edge_indices = [g.edge_index for g in graphs]
-            self.batches = [g.batch if hasattr(g, 'batch') else None for g in graphs]
-        else:
-            self.edge_indices = edge_indices
-            self.batches = batches
+class basedataset(torch.utils.data.Dataset):
+    """Base dataset class with PyTorch Dataset inheritance"""
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
 
-class mydataset(GraphDatasetMixin):
-    """Base dataset class with EMG-aware graph handling"""
+    def __getitem__(self, index):
+        return self.x[index], self.y[index]
+
+    def __len__(self):
+        return len(self.x)
+
+class mydataset(torch.utils.data.Dataset):
+    """Enhanced dataset class with improved functionality"""
     def __init__(self, args):
         super().__init__()
-        self.x = None          # EMG sensor data
-        self.labels = None     # Gesture labels
-        self.dlabels = None    # Domain labels
-        self.pclabels = None   # Pseudo-class labels  
-        self.pdlabels = None    # Pseudo-domain labels
+        self.x = None
+        self.labels = None
+        self.dlabels = None
+        self.pclabels = None
+        self.pdlabels = None
+        self.task = None
+        self.dataset = None
+        self.transform = None
+        self.target_transform = None
+        self.loader = None
         self.args = args
-        self.sensor_count = 8  # MYO armband specific
         
-    def __getitem__(self, index):
-        """Returns either graph or raw data based on initialization"""
-        # Base items
-        item = [
-            self.input_trans(self.x[index]),
-            self.target_trans(self.labels[index]),
-            self.target_trans(self.dlabels[index]),
-            self.target_trans(self.pclabels[index]) if self.pclabels is not None else -1,
-            self.target_trans(self.pdlabels[index]) if self.pdlabels is not None else -1,
-            index  # Original sample index
-        ]
+        # Add data statistics tracking
+        self.mean = None
+        self.std = None
+        self.class_distribution = None
+
+    def set_labels(self, tlabels=None, label_type='domain_label'):
+        assert len(tlabels) == len(self.x)
+        if label_type == 'pclabel':
+            self.pclabels = tlabels
+        elif label_type == 'pdlabel':
+            self.pdlabels = tlabels
+        elif label_type == 'domain_label':
+            self.dlabels = tlabels
+        elif label_type == 'class_label':
+            self.labels = tlabels
+
+    def set_labels_by_index(self, tlabels=None, tindex=None, label_type='domain_label'):
+        if label_type == 'pclabel':
+            self.pclabels[tindex] = tlabels
+        elif label_type == 'pdlabel':
+            self.pdlabels[tindex] = tlabels
+        elif label_type == 'domain_label':
+            self.dlabels[tindex] = tlabels
+        elif label_type == 'class_label':
+            self.labels[tindex] = tlabels
+
+    def target_trans(self, y):
+        if self.target_transform is not None:
+            return self.target_transform(y)
+        else:
+            return y
+
+    def input_trans(self, x):
+        if self.transform is not None:
+            return self.transform(x)
+        else:
+            return x
+
+    def compute_statistics(self):
+        """Compute and store dataset statistics for normalization"""
+        if isinstance(self.x, np.ndarray):
+            self.mean = np.mean(self.x, axis=0)
+            self.std = np.std(self.x, axis=0)
+        elif torch.is_tensor(self.x):
+            self.mean = torch.mean(self.x, dim=0)
+            self.std = torch.std(self.x, dim=0)
         
-        # Graph mode additions
-        if self.graphs is not None:
-            return self.graphs[index]  # Return full PyG Data object
-        elif self.edge_indices is not None:
-            item.append(self.edge_indices[index])
+        # Compute class distribution
+        if self.labels is not None:
+            unique, counts = np.unique(self.labels, return_counts=True)
+            self.class_distribution = dict(zip(unique, counts))
+            print("Class distribution:", self.class_distribution)
+
+    def normalize(self):
+        """Normalize dataset using computed statistics"""
+        if self.mean is None or self.std is None:
+            self.compute_statistics()
             
-        return tuple(item)
+        # Apply normalization
+        if isinstance(self.x, np.ndarray):
+            self.x = (self.x - self.mean) / (self.std + 1e-8)
+        elif torch.is_tensor(self.x):
+            self.x = (self.x - self.mean) / (self.std + 1e-8)
+
+    def __getitem__(self, index):
+        # Convert index to Python int
+        if isinstance(index, np.integer):
+            index = int(index)
+        elif isinstance(index, np.ndarray):
+            index = index.item()
+        
+        # Get and convert data
+        x = self.input_trans(self.x[index])
+        ctarget = self.labels[index] if self.labels is not None else -1
+        dtarget = self.dlabels[index] if self.dlabels is not None else -1
+        pctarget = self.pclabels[index] if self.pclabels is not None else -1
+        pdtarget = self.pdlabels[index] if self.pdlabels is not None else -1
+        
+        # Convert numpy types to Python primitives
+        if isinstance(ctarget, np.generic):
+            ctarget = ctarget.item()
+        if isinstance(dtarget, np.generic):
+            dtarget = dtarget.item()
+        if isinstance(pctarget, np.generic):
+            pctarget = pctarget.item()
+        if isinstance(pdtarget, np.generic):
+            pdtarget = pdtarget.item()
+            
+        # For GNN models, ensure x is a Data object
+        if hasattr(self.args, 'use_gnn') and self.args.use_gnn and not isinstance(x, Data):
+            x = Data(x=x, edge_index=torch.tensor([[], []], dtype=torch.long), edge_attr=torch.tensor([]))
+            
+        return x, ctarget, dtarget, pctarget, pdtarget, index
+
+    def __len__(self):
+        return len(self.x)
+
+class subdataset(mydataset):
+    """Subset of a dataset"""
+    def __init__(self, args, dataset, indices):
+        super().__init__(args)
+        
+        # Convert indices to integer list
+        if isinstance(indices, int):
+            indices = [indices]
+        elif isinstance(indices, (torch.Tensor, np.ndarray)):
+            indices = indices.tolist()
+        indices = [int(i) for i in indices]
+        
+        # Extract data
+        self.x = dataset.x[indices]
+        self.labels = dataset.labels[indices] if dataset.labels is not None else None
+        self.dlabels = dataset.dlabels[indices] if dataset.dlabels is not None else None
+        self.pclabels = dataset.pclabels[indices] if dataset.pclabels is not None else None
+        self.pdlabels = dataset.pdlabels[indices] if dataset.pdlabels is not None else None
+        
+        self.loader = dataset.loader
+        self.task = dataset.task
+        self.dataset = dataset.dataset
+        self.transform = dataset.transform
+        self.target_transform = dataset.target_transform
+        
+        # Copy statistics
+        self.mean = dataset.mean
+        self.std = dataset.std
+        self.class_distribution = dataset.class_distribution
 
 class combindataset(mydataset):
-    """Dataset combiner with graph-aware merging"""
+    """Combined dataset from multiple sources"""
     def __init__(self, args, datalist):
         super().__init__(args)
         self.domain_num = len(datalist)
+        self.loader = datalist[0].loader
         
-        # Combine all data fields
-        self.x = torch.vstack([d.x for d in datalist])
-        self.labels = np.hstack([d.labels for d in datalist])
-        self.dlabels = np.hstack([d.dlabels for d in datalist])
-        self.pclabels = np.hstack([d.pclabels for d in datalist]) if datalist[0].pclabels is not None else None
-        self.pdlabels = np.hstack([d.pdlabels for d in datalist]) if datalist[0].pdlabels is not None else None
+        xlist = [item.x for item in datalist]
+        cylist = [item.labels for item in datalist]
+        dylist = [item.dlabels for item in datalist]
+        pcylist = [item.pclabels for item in datalist]
+        pdylist = [item.pdlabels for item in datalist]
         
-        # Handle graph data merging
-        if all(hasattr(d, 'graphs') for d in datalist):
-            self.graphs = [g for d in datalist for g in d.graphs]
-            self.set_graph_attributes(graphs=self.graphs)
-        elif all(hasattr(d, 'edge_indices') for d in datalist):
-            self.edge_indices = [ei for d in datalist for ei in d.edge_indices]
-            self.batches = [b for d in datalist for b in d.batches]
-
-def graph_collate_fn(batch):
-    """Smart collator handling all EMG data formats"""
-    # Case 1: PyG Data objects (recommended)
-    if isinstance(batch[0], Data):
-        batch = Batch.from_data_list(batch)
-        batch.batch_idx = torch.arange(len(batch))  # Preserve original indices
-        return batch
-    
-    # Case 2: Legacy tuple format
-    elif isinstance(batch[0], (tuple, list)):
-        # Extract components
-        xs = [item[0] for item in batch]
-        ys = [item[1] for item in batch]
-        domains = [item[2] for item in batch]
-        pclabels = [item[3] for item in batch]
-        pdlabels = [item[4] for item in batch]
-        indices = [item[5] for item in batch]
+        self.dataset = datalist[0].dataset
+        self.task = datalist[0].task
+        self.transform = datalist[0].transform
+        self.target_transform = datalist[0].target_transform
         
-        # Build graph batch if edge indices exist
-        if len(batch[0]) > 6:
-            edge_indices = [item[6] for item in batch]
-            graphs = [
-                Data(
-                    x=x.float(),
-                    y=y.long(),
-                    edge_index=eidx.long(),
-                    domain=d.long(),
-                    pclabel=pcl.long() if pcl != -1 else None,
-                    pdlabel=pdl.long() if pdl != -1 else None,
-                    batch_idx=idx
-                )
-                for x, y, d, pcl, pdl, idx, eidx in zip(
-                    xs, ys, domains, pclabels, pdlabels, indices, edge_indices
-                )
-            ]
-            return Batch.from_data_list(graphs)
+        # Handle different data types
+        if all(torch.is_tensor(x) for x in xlist):
+            self.x = torch.vstack(xlist)
+        else:
+            self.x = np.vstack([x.numpy() if torch.is_tensor(x) else x for x in xlist])
         
-        # Non-graph fallback
-        return torch.utils.data.default_collate(batch)
-    
-    # Case 3: Unknown format
-    raise ValueError(f"Unsupported batch type: {type(batch[0])}")
-
-def validate_emg_batch(batch):
-    """EMG-specific batch validation"""
-    if isinstance(batch, Batch):
-        # Shape checks
-        assert batch.x.dim() == 2, f"Features should be 2D (got {batch.x.shape})"
-        assert batch.y.dim() == 1, f"Labels should be 1D (got {batch.y.shape})"
+        # Convert labels to tensors to avoid numpy types
+        self.labels = torch.tensor(np.hstack(cylist), dtype=torch.long)
+        self.dlabels = torch.tensor(np.hstack(dylist), dtype=torch.long)
+        self.pclabels = torch.tensor(np.hstack(pcylist), dtype=torch.long) if pcylist[0] is not None else None
+        self.pdlabels = torch.tensor(np.hstack(pdylist), dtype=torch.long) if pdylist[0] is not None else None
         
-        # MYO armband specific
-        if batch.x.size(1) != 8:
-            print(f"⚠️ Unexpected sensor count: {batch.x.size(1)} (expected 8)")
-        
-        # Graph connectivity checks
-        if batch.edge_index.size(1) == 0:
-            print("⚠️ Empty edge_index - check graph construction")
-            
-    return True
-
-def get_graph_metrics(batch):
-    """Compute EMG graph statistics"""
-    metrics = {}
-    if isinstance(batch, Batch):
-        metrics.update({
-            'sensors_used': batch.x.abs().mean(dim=0),  # Per-sensor activation
-            'edge_density': batch.num_edges / (batch.num_nodes ** 2),
-            'cross_domain_edges': (
-                batch.domain[batch.edge_index[0]] != 
-                batch.domain[batch.edge_index[1]]
-            ).float().mean().item() if hasattr(batch, 'domain') else None
-        })
-    return metrics
-    
-class subdataset(Dataset):
-    """Light‐wrapper around another dataset + index list."""
-    def __init__(self, args, dataset, indices, transform=None):
-        self.dataset   = dataset
-        self.indices   = np.array(indices, dtype=np.int64)
-        self.transform = transform
-    def __len__(self):
-        return len(self.indices)
-    def __getitem__(self, idx):
-        real_idx = self.indices[idx]
-        item = self.dataset[real_idx]
-        # if it's a PyG Data it comes back whole
-        if hasattr(item, 'edge_index'):
-            return item
-        # else it's a tuple (x,c,p,s,pd,idx,[edge])
-        # preserve the real_idx override at position 5
-        out = list(item)
-        out[5] = real_idx
-        return tuple(out)
+        # Compute new statistics for combined dataset
+        self.compute_statistics()
