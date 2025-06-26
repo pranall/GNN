@@ -1,43 +1,46 @@
-import os
-import numpy as np
 from torchvision import transforms
-from scipy.signal import resample
+import numpy as np
+import torch
+from datautil.graph_utils import convert_to_graph
+
+class StandardScaler:
+    """Normalize sensor data channel-wise"""
+    def __call__(self, tensor):
+        # tensor shape: [channels, timesteps, features]
+        for c in range(tensor.size(0)):
+            for f in range(tensor.size(2)):
+                channel_data = tensor[c, :, f]
+                mean = channel_data.mean()
+                std = channel_data.std()
+                if std > 0:
+                    tensor[c, :, f] = (channel_data - mean) / std
+                else:
+                    tensor[c, :, f] = channel_data - mean
+        return tensor
 
 def act_train():
-    """Default transforms for EMG data"""
+    """Original transformation for activity data"""
     return transforms.Compose([
-        transforms.ToTensor()
+        transforms.ToTensor(),
+        StandardScaler(),
+        lambda x: torch.tensor(x, dtype=torch.float32)
+    ])
+
+def act_to_graph_transform(args):
+    """Transformation pipeline for GNN models"""
+    return transforms.Compose([
+        transforms.ToTensor(),
+        StandardScaler(),
+        # Changed to output [channels, time_steps] for GNN
+        lambda x: x.squeeze(1)  # Remove middle dimension
     ])
 
 def loaddata_from_numpy(dataset='dsads', task='cross_people', root_dir='./data/act/'):
-    """Enhanced with graph data support"""
-    dataset_dir = os.path.join(root_dir, dataset)
-    
-    # Path handling
-    suffix = '_x1.npy' if (dataset == 'pamap' and task == 'cross_people') else '_x.npy'
-    x_path = os.path.join(dataset_dir, f"{dataset}{suffix}")
-    y_path = os.path.join(dataset_dir, f"{dataset}_y.npy")
-
-    print(f" Loading X from: {x_path}")
-    print(f" Loading Y from: {y_path}")
-
-    # Load and preprocess
-    x = np.load(x_path)
-    ty = np.load(y_path)
-    
-    # Standard EMG preprocessing
-    if dataset == 'emg':
-        x = np.array([resample(ch, 200) for ch in x])  # Downsample to 200Hz
-    
+    if dataset == 'pamap' and task == 'cross_people':
+        x = np.load(root_dir+dataset+'/'+dataset+'_x1.npy')
+        ty = np.load(root_dir+dataset+'/'+dataset+'_y1.npy')
+    else:
+        x = np.load(root_dir+dataset+'/'+dataset+'_x.npy')
+        ty = np.load(root_dir+dataset+'/'+dataset+'_y.npy')
     cy, py, sy = ty[:, 0], ty[:, 1], ty[:, 2]
     return x, cy, py, sy
-
-def emg_to_graph(x, y, threshold=0.3):
-    """Convert EMG data to graph format"""
-    from gnn.graph_builder import build_emg_graph  # Avoid circular import
-    graphs = []
-    for sample, label in zip(x, y):
-        g = build_emg_graph(sample, threshold)
-        g.y = torch.tensor([label], dtype=torch.long)
-        graphs.append(g)
-    return graphs
