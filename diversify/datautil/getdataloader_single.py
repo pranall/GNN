@@ -1,84 +1,124 @@
-import os
 import numpy as np
-import torch
 from torch.utils.data import DataLoader
-from torch_geometric.data import Batch
-from datautil.util import graph_collate_fn
+import torch
 import datautil.actdata.util as actutil
 from datautil.util import combindataset, subdataset
 import datautil.actdata.cross_people as cross_people
 
-task_act = {
-    'cross_people': cross_people,
-}
+task_act = {'cross_people': cross_people}
+
+def generate_emg_edge_index(num_sensors=8):
+    """Generate fully-connected edge indices for EMG sensor graph"""
+    edge_index = []
+    for i in range(num_sensors):
+        for j in range(num_sensors):
+            if i != j:  # No self-connections
+                edge_index.append([i, j])
+    return torch.tensor(edge_index).t().contiguous()
 
 def get_dataloader(args, tr, val, tar):
-    """Return (train, train_noshuffle, valid, target) DataLoaders."""
-    collate = graph_collate_fn if args.use_gnn else None
+    """Modified to handle graph data structure"""
+    def collate_fn(batch):
+        if args.use_gnn:
+            # For GNN: unpack and add edge indices
+            inputs = torch.stack([item[0] for item in batch])
+            labels = torch.stack([item[1] for item in batch])
+            domains = torch.stack([item[2] for item in batch])
+            cls_labels = torch.stack([item[3] for item in batch])
+            pd_labels = torch.stack([item[4] for item in batch])
+            indices = torch.stack([item[5] for item in batch])
+            
+            # Generate edge indices (same for all samples in batch)
+            edge_indices = generate_emg_edge_index()
+            
+            return (inputs, labels, domains, cls_labels, pd_labels, indices, edge_indices)
+        else:
+            # Original processing
+            return torch.utils.data.default_collate(batch)
 
     train_loader = DataLoader(
-        tr, batch_size=args.batch_size, shuffle=True,
-        num_workers=args.N_WORKERS, collate_fn=collate
+        dataset=tr, 
+        batch_size=args.batch_size,
+        num_workers=args.N_WORKERS,
+        drop_last=False,
+        shuffle=True,
+        collate_fn=collate_fn if args.use_gnn else None
     )
+    
     train_loader_noshuffle = DataLoader(
-        tr, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.N_WORKERS, collate_fn=collate
+        dataset=tr,
+        batch_size=args.batch_size,
+        num_workers=args.N_WORKERS,
+        drop_last=False,
+        shuffle=False,
+        collate_fn=collate_fn if args.use_gnn else None
     )
+    
     valid_loader = DataLoader(
-        val, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.N_WORKERS, collate_fn=collate
+        dataset=val,
+        batch_size=args.batch_size,
+        num_workers=args.N_WORKERS,
+        drop_last=False,
+        shuffle=False,
+        collate_fn=collate_fn if args.use_gnn else None
     )
+    
     target_loader = DataLoader(
-        tar, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.N_WORKERS, collate_fn=collate
+        dataset=tar,
+        batch_size=args.batch_size,
+        num_workers=args.N_WORKERS,
+        drop_last=False,
+        shuffle=False,
+        collate_fn=collate_fn if args.use_gnn else None
     )
-
+    
     return train_loader, train_loader_noshuffle, valid_loader, target_loader
 
-
 def get_act_dataloader(args):
-    """Load EMG data (cross_people), wrap in ActList, combine & split."""
-    # ensure N_WORKERS is set
-    if not hasattr(args, 'N_WORKERS'):
-        args.N_WORKERS = 4
+    """Main loader function with GNN support"""
+    source_datasetlist = []
+    target_datalist = []
+    pcross_act = task_act[args.task]
 
-    src_datasets = []
-    tgt_datasets = []
+    # Set default GNN parameters if not specified
+    if not hasattr(args, 'node_features'):
+        args.node_features = 16  # Default features per sensor node
+    if not hasattr(args, 'gnn_hidden'):
+        args.gnn_hidden = 64     # Default GNN hidden dimension
 
-    pcross = task_act[args.task]
-    people_groups = args.act_people[args.dataset]
-    args.domain_num = len(people_groups)
-
-    # build one ActList per group
-    for grp_idx, people in enumerate(people_groups):
-        ds = pcross.ActList(
-            args, args.dataset, args.data_dir,
-            people_group=people,
-            group_num=grp_idx,
-            transform=actutil.act_train(),
-        )
-        if grp_idx in args.test_envs:
-            tgt_datasets.append(ds)
+    tmpp = args.act_people[args.dataset]
+    args.domain_num = len(tmpp)
+    
+    for i, item in enumerate(tmpp):
+        tdata = pcross_act.ActList(
+            args, args.dataset, args.data_dir, item, i, transform=actutil.act_train())
+        if i in args.test_envs:
+            target_datalist.append(tdata)
         else:
-            src_datasets.append(ds)
-
-    # combine all source into one big dataset
-    combined_src = combindataset(args, src_datasets)
-
-    # train/val split
-    total = len(combined_src)
-    idx = np.arange(total)
+            source_datasetlist.append(tdata)
+            if len(tdata)/args.batch_size < args.steps_per_epoch:
+                args.steps_per_epoch = len(tdata)/args.batch_size
+    
+    rate = 0.2
+    args.steps_per_epoch = int(args.steps_per_epoch*(1-rate))
+    tdata = combindataset(args, source_datasetlist)
+    l = len(tdata.labels)
+    indexall = np.arange(l)
     np.random.seed(args.seed)
-    np.random.shuffle(idx)
-    val_size = int(0.2 * total)
-
-    val_idx   = idx[:val_size]
-    train_idx = idx[val_size:]
-
-    train_ds = subdataset(args, combined_src, train_idx)
-    valid_ds = subdataset(args, combined_src, val_idx)
-
-    # combine all target envs
-    combined_tgt = combindataset(args, tgt_datasets)
-
-    return get_dataloader(args, train_ds, valid_ds, combined_tgt)
+    np.random.shuffle(indexall)
+    ted = int(l*rate)
+    indextr, indexval = indexall[ted:], indexall[:ted]
+    
+    tr = subdataset(args, tdata, indextr)
+    val = subdataset(args, tdata, indexval)
+    targetdata = combindataset(args, target_datalist)
+    
+    # Add graph structure info if using GNN
+    if args.use_gnn:
+        for dataset in [tr, val, targetdata]:
+            dataset.edge_index = generate_emg_edge_index()
+    
+    train_loader, train_loader_noshuffle, valid_loader, target_loader = get_dataloader(
+        args, tr, val, targetdata)
+    
+    return train_loader, train_loader_noshuffle, valid_loader, target_loader, tr, val, targetdata
