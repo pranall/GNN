@@ -1,13 +1,11 @@
 from .algs.diversify import Diversify
-
 ALGORITHMS = [
     'diversify'
 ]
 
+
 def get_algorithm_class(algorithm_name):
-    name = algorithm_name.lower()
-    if name not in ALGORITHMS:
+    if algorithm_name not in ALGORITHMS:
         raise NotImplementedError(
-            f"Algorithm not found: {algorithm_name}"
-        )
+            "Algorithm not found: {}".format(algorithm_name))
     return Diversify
