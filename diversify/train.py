@@ -46,24 +46,23 @@ def evaluate(model, loader, device):
 
 def main():
     class Args:
-    seed = 42
-    max_epoch = 20
-    local_epoch = 3
-    output = "./data/train_output/"
-    batch_size = 32
-    N_WORKERS = 2
-    model_type = "gnn"
-    algorithm = "gnn"
-    num_classes = 6
-    data_dir = "./data/"
-    task = "cross_people"
-    dataset = "emg"
-    act_people = {
-        "emg": list(range(36))  # or however many people you have
-    }
-        # ✅ Also add this!
-    args = Args()
+        seed = 42
+        max_epoch = 20
+        local_epoch = 3
+        output = "./data/train_output/"
+        batch_size = 32
+        N_WORKERS = 2
+        model_type = "gnn"
+        algorithm = "gnn"
+        num_classes = 6
+        data_dir = "./data/"
+        task = "cross_people"
+        dataset = "emg"
+        act_people = {
+            "emg": list(range(36))  # ✅ Added list of subjects
+        }
 
+    args = Args()
     set_random_seed(args.seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
