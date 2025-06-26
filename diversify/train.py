@@ -55,6 +55,8 @@ def main():
         model_type = "gnn"
         algorithm = "gnn"
         num_classes = 6
+        task = "cross_people"  # ✅ Add this!
+        dataset = "emg"         # ✅ Also add this!
     args = Args()
 
     set_random_seed(args.seed)
