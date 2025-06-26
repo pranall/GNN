@@ -13,7 +13,7 @@ from torch_geometric.data import Batch
 from datautil.getdataloader_single import get_act_dataloader
 
 # Import TemporalGCN directly
-from diversify.gnn.temporal_gcn import TemporalGCN
+from gnn.temporal_gcn import TemporalGCN
 
 # Utility for setting seed
 import numpy as np
