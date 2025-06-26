@@ -1,47 +1,35 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import GATv2Conv  # Better than GCN for EMG
-from torch.nn import LSTM
+from torch_geometric.nn import GCNConv
 
 class TemporalGCN(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64, output_dim=128, heads=4):
-        super().__init__()
-        # Spatial aggregation
-        self.conv1 = GATv2Conv(
-            input_dim, hidden_dim, 
-            heads=heads, 
-            edge_dim=1,  # Use correlation strength
-            dropout=0.3
-        )
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers=2, dropout=0.1):
+        super(TemporalGCN, self).__init__()
+        self.gcn_layers = nn.ModuleList()
+        self.gcn_layers.append(GCNConv(input_dim, hidden_dim))
+        for _ in range(num_layers - 1):
+            self.gcn_layers.append(GCNConv(hidden_dim, hidden_dim))
         
-        # Temporal processing
-        self.lstm = LSTM(
-            hidden_dim * heads, hidden_dim,
-            bidirectional=True,
-            batch_first=True
-        )
+        self.lstm = nn.LSTM(hidden_dim, output_dim, 
+                           num_layers=2, 
+                           batch_first=True,
+                           dropout=dropout if num_layers > 1 else 0)
         
-        # Output projection
-        self.fc = nn.Sequential(
-            nn.Linear(hidden_dim * 2, output_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3)
-        )
-        
-        self.in_features = output_dim  # For downstream compatibility
+        self.dropout = nn.Dropout(dropout)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.activation = nn.ReLU()
 
-    def forward(self, x, edge_index, edge_attr=None, batch=None):
-        # Spatial aggregation
-        x = F.elu(self.conv1(x, edge_index, edge_attr))  # (N, heads*hidden)
+    def forward(self, x, edge_index, batch_size):
+        # GCN processing
+        for layer in self.gcn_layers[:-1]:
+            x = layer(x, edge_index)
+            x = self.activation(x)
+            x = self.dropout(x)
+        
+        x = self.gcn_layers[-1](x, edge_index)
+        x = self.norm(x)
         
         # Temporal processing
-        if batch is not None:
-            x, _ = self.lstm(x.unsqueeze(0))  # (1, N, hidden*2)
-            x = x.squeeze(0)
-        else:
-            # Handle single sample
-            x, _ = self.lstm(x.unsqueeze(0))
-            x = x.squeeze(0)
-        
-        return self.fc(x)
+        x = x.view(batch_size, -1, x.size(1))
+        x, (h_n, _) = self.lstm(x)
+        return h_n[-1]
