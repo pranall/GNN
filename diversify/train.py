@@ -1,21 +1,16 @@
 import time
 import pickle
 from pathlib import Path
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from sklearn.metrics import f1_score, precision_score, recall_score
 from torch_geometric.data import Batch
-
-# Import your dataloader
 from datautil.getdataloader_single import get_act_dataloader
-
-# Import TemporalGCN directly
 from gnn.temporal_gcn import TemporalGCN
-
-# Utility for setting seed
+from gnn.graph_builder import GraphBuilder  # if needed directly
+from datautil.graph_utils import convert_to_graph
 import numpy as np
 import random
 
