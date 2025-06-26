@@ -46,17 +46,22 @@ def evaluate(model, loader, device):
 
 def main():
     class Args:
-        seed = 42
-        max_epoch = 20
-        local_epoch = 1
-        output = "./gnn_output"
-        batch_size = 32
-        N_WORKERS = 2
-        model_type = "gnn"
-        algorithm = "gnn"
-        num_classes = 6
-        task = "cross_people"  # ✅ Add this!
-        dataset = "emg"         # ✅ Also add this!
+    seed = 42
+    max_epoch = 20
+    local_epoch = 3
+    output = "./data/train_output/"
+    batch_size = 32
+    N_WORKERS = 2
+    model_type = "gnn"
+    algorithm = "gnn"
+    num_classes = 6
+    data_dir = "./data/"
+    task = "cross_people"
+    dataset = "emg"
+    act_people = {
+        "emg": list(range(36))  # or however many people you have
+    }
+        # ✅ Also add this!
     args = Args()
 
     set_random_seed(args.seed)
