@@ -116,18 +116,19 @@ class DiversifyGNN(Algorithm):
         opt.step()
         return {'class': loss.item()}
 
-   def set_dlabel(self, loader):
+    def set_dlabel(self, loader):
         """Minimal implementation to avoid errors"""
         self.train()
         with torch.no_grad():
             for data in loader:
                 inputs = data[0].cuda().float()
-                self.dbottleneck(self.featurizer(inputs))
+                self.dbottleneck(self.forward(inputs, data[-1]))
         return None
 
     def predict1(self, x):
         """Minimal working implementation"""
-        return self.ddiscriminator(self.dbottleneck(self.featurizer(x)))
+        edge_index = torch.tensor([[i, j] for i in range(8) for j in range(8) if i != j]).t().cuda()
+        return self.ddiscriminator(self.dbottleneck(self.forward(x, edge_index)))
 
 class Diversify(DiversifyGNN):
     def __init__(self, args):
