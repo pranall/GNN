@@ -8,7 +8,7 @@ from alg.alg import get_algorithm_class
 from utils.util import set_random_seed, get_args, print_row, print_environ
 from datautil.getdataloader_single import get_act_dataloader
 from gnn.graph_builder import build_emg_graph
-
+import argparse
 # Initialize seed - use only one method
 # set_random_seed(42)  # Either use this
 # OR use the existing set_random_seed(args.seed) in main()
@@ -28,7 +28,13 @@ def prepare_graph_data(batch, device):
     except Exception as e:
         print(f"Error preparing graph data: {e}")
         raise
-
+        
+def patch_args(args):
+    """Add missing arguments that may be required by data loaders"""
+    if not hasattr(args, 'act_people'):
+        args.act_people = 36  # Default value for EMG dataset
+    return args
+    
 def main(args):
     # 1. Initialization
     set_random_seed(args.seed if hasattr(args, 'seed') else 42)
@@ -86,7 +92,9 @@ def main(args):
             print(f"Error during epoch {epoch}: {e}")
             continue
 
+# modify the __main__ block at the bottom:
 if __name__ == "__main__":
     args = get_args()
-    args.use_gnn = args.algorithm.lower() == 'gnn'  # Auto-set GNN flag
+    args = patch_args(args)  # Add this line right after get_args()
+    args.use_gnn = args.algorithm.lower() == 'gnn'  # Existing line
     main(args)
