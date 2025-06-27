@@ -291,55 +291,55 @@ class Diversify(Algorithm):
             print(f"[Step {self.global_step}] ClassLoss={classifier_loss.item():.4f} | DiscLoss={disc_loss.item():.4f}")
         return {'total': loss.item(), 'class': classifier_loss.item(), 'dis': disc_loss.item()}
 
-    def update_a(self, minibatches, opt):
+        def update_a(self, minibatches, opt):
         device = next(self.parameters()).device
-        all_x = to_device(minibatches[0], device)
-
-        if not self.args.use_gnn and isinstance(all_x, torch.Tensor):
-            all_x = self.ensure_correct_dimensions(all_x)
-
-        all_c = minibatches[1].to(device).long()
-        if len(minibatches) >= 5:
-            all_d = minibatches[4].to(device).long()
-        else:
-            all_d = minibatches[2].to(device).long()
-
-        n_domains = self.args.latent_domain_num
-        all_d = torch.clamp(all_d, 0, n_domains - 1)
-        all_y = all_d * self.args.num_classes + all_c
+        # minibatches = [x, y, d, ...]
+        raw_x = minibatches[0]
+        all_y = minibatches[1].to(device).long()
+        all_d = (minibatches[4] if len(minibatches) >= 5 else minibatches[2]).to(device).long()
+        
+        # Combine class+domain labels
         max_class = self.aclassifier.fc.out_features
-        all_y = torch.clamp(all_y, 0, max_class - 1)
-
+        all_y_combined = torch.clamp(
+            all_d * self.args.num_classes + all_y,
+            0, max_class - 1
+        )
+        
         if self.args.use_gnn:
-            # PyG Data input — leave untouched
-            print("🔥 Shape going into featurizer:", all_x.x.shape)
-            all_z = self.abottleneck(self.featurizer(all_x))
+            # ---- NEW GNN PIPELINE ----
+            # 1) Move and reshape raw EMG: [B, 1, 200] → [B, 8, 200]
+            x = to_device(raw_x, device)
+            x = transform_for_gnn(x)                      # ensure shape [B,8,200]
+            x = self.ensure_correct_dimensions(x)         # → [B,8,1,200]
+            print("🔥 Shape going into GNN featurizer:", x.shape)
+            
+            # 2) Forward through your TemporalGCN (raw-tensor branch)
+            #    This runs temporal_conv → GCN → pool → classifier internally.
+            features = self.featurizer(x)                # returns [B, gnn_output_dim]
+            all_z = self.abottleneck(features)           # bottleneck on GNN features
         else:
-            # CNN Tensor input
-            all_z = self.abottleneck(self.featurizer(all_x))
+            # ---- ORIGINAL CNN PIPELINE ----
+            x = to_device(raw_x, device)
+            x = self.ensure_correct_dimensions(x)         # [B,8,1,200]
+            features = self.featurizer(x)                # returns [B, cnn_feature_dim]
+            all_z = self.abottleneck(features)
 
-        if self.explain_mode:
-            all_z = all_z.clone()
-
+        # now all_z is [B, bottleneck_dim], ready for the aclassifier
         all_preds = self.aclassifier(all_z)
-
+        
         # ==== BATCH ALIGNMENT ====
-        if all_preds.shape[0] != all_y.shape[0]:
-            batch_size = all_y.shape[0]
-            if all_preds.shape[0] % batch_size == 0:
-                time_steps = all_preds.shape[0] // batch_size
-                all_preds = all_preds.view(batch_size, time_steps, -1).mean(dim=1)
-            else:
-                raise ValueError(f"all_preds shape {all_preds.shape} and all_y shape {all_y.shape} not compatible.")
+        if all_preds.shape[0] != all_y_combined.shape[0]:
+            batch_size = all_y_combined.shape[0]
+            time_steps = all_preds.shape[0] // batch_size
+            all_preds = all_preds.view(batch_size, time_steps, -1).mean(dim=1)
 
-        classifier_loss = F.cross_entropy(all_preds, all_y)
+        # compute loss & step
+        loss = F.cross_entropy(all_preds, all_y_combined)
         opt.zero_grad()
-        classifier_loss.backward()
+        loss.backward()
         opt.step()
 
-        return {'class': classifier_loss.item()}
-
-
+        return {'class': loss.item()}
 
     def predict(self, x):
         if isinstance(x, torch.Tensor):
