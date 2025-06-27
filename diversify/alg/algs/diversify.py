@@ -130,9 +130,8 @@ class Diversify(Algorithm):
         with torch.no_grad():
             for batch in loader:
                 x = to_device(batch[0], device)
-                if self.args.use_gnn and not hasattr(x, 'x'):
-                    x = transform_for_gnn(x)
-                x = self.ensure_correct_dimensions(x) if not hasattr(x, 'x') else x
+                # --- Remove all reshaping for GNN! ---
+                # x is already PyG Batch if using GNN, else tensor for non-GNN
                 f = self.dbottleneck(self.featurizer(x)).cpu()
                 feats.append(f.numpy())
                 idxs.append(np.arange(base, base + f.size(0)))
@@ -142,6 +141,7 @@ class Diversify(Algorithm):
         ds.set_labels_by_index(torch.tensor(list(labels.keys())), torch.tensor(list(labels.values())), 'pdlabel')
         print(f"Pseudo-domain labels set: {labels}")
         self.featurizer.train()
+
 
     def update(self, batch, opt):
         x, y = batch
