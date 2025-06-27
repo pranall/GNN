@@ -158,13 +158,8 @@ class Diversify(Algorithm):
         y = y.to(device).long()
         d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
 
-        # 1) reshape EMG -> [B,8,1,200]
-        x = to_device(raw_x, device)                # whatever collate_gnn gave you
-        x = transform_for_gnn(x)                    # -> [B,8,200]
-        x = self.ensure_correct_dimensions(x)       # -> [B,8,1,200]
-
-        # 2) forward through your TemporalGCN (will build edges under the hood)
-        features = self.featurizer(x)               # -> [B, gnn_output_dim]
+        x = to_device(raw_x, device)  # Loader already gives you PyG Batch or Data
+        features = self.featurizer(x) # Pass directly to model
 
         # 3) bottleneck + classifier
         z = self.abottleneck(features)              # -> [B, bottleneck]
