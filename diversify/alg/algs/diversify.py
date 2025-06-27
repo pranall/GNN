@@ -164,7 +164,7 @@ class Diversify(Algorithm):
         x = self.ensure_correct_dimensions(x)       # -> [B,8,1,200]
 
         # 2) forward through your TemporalGCN (will build edges under the hood)
-        features = self.featurizer(x, edge_index=None)               # -> [B, gnn_output_dim]
+        features = self.featurizer(x)               # -> [B, gnn_output_dim]
 
         # 3) bottleneck + classifier
         z = self.abottleneck(features)              # -> [B, bottleneck]
