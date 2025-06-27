@@ -72,6 +72,7 @@ class SafeSubset(Subset):
 
 def collate_gnn(batch):
     graphs, labels, domains = [], [], []
+    
     for sample in batch:
         if isinstance(sample, tuple):
             g = sample[0]
@@ -93,11 +94,24 @@ def collate_gnn(batch):
             else:
                 g = sample
                 y = d = 0
+
+        # Fix shape: convert [C, 1, T] → [C, T]
+        if isinstance(g, torch.Tensor):
+            if g.ndim == 3 and g.shape[1] == 1:
+                g = g.squeeze(1)  # [8, 1, 200] → [8, 200]
+            if g.ndim == 2:
+                g = g.unsqueeze(0)  # [8, 200] → [1, 8, 200]
         graphs.append(g)
         labels.append(y)
         domains.append(d)
-    batched_graph = Batch.from_data_list(graphs)
-    return batched_graph, torch.tensor(labels, dtype=torch.long), torch.tensor(domains, dtype=torch.long)
+
+    # Stack final batch tensor
+    if isinstance(graphs[0], torch.Tensor):
+        x = torch.cat(graphs, dim=0)  # [B, 8, 200]
+        return x, torch.tensor(labels, dtype=torch.long), torch.tensor(domains, dtype=torch.long)
+    else:
+        batched_graph = Batch.from_data_list(graphs)
+        return batched_graph, torch.tensor(labels, dtype=torch.long), torch.tensor(domains, dtype=torch.long)
 
 def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
     return DataLoader(dataset=dataset, batch_size=batch_size,
