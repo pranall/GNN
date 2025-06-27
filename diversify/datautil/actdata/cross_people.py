@@ -38,6 +38,9 @@ class ActList(mydataset):
         
         # Set up groups and positions
         self.people_group = people_group
+        # Flatten people group if it's nested
+        self.people_group = [p for group in people_group for p in (group if isinstance(group, list) else [group])]
+
         self.position = np.sort(np.unique(sy))
         
         # Combine data from different people and positions
