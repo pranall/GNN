@@ -10,6 +10,8 @@ from alg.modelopera import get_fea
 from alg.algs.base import Algorithm
 from loss.common_loss import Entropylogits
 from network import Adver_network, common_network
+from sklearn.cluster import KMeans
+
 
 # Utility: move tensors or Data objects to device
 
@@ -24,6 +26,11 @@ def to_device(batch, device):
 # Reshape raw EMG tensors for GNN: output [B, C=8, T=200]
 
 def transform_for_gnn(x):
+    # If it's already a PyG Data or Batch, leave it alone
+    if isinstance(x, (Data, Batch)):
+        return x
+
+    # otherwise assume it's a raw tensor [B, C, 1, T] or [B, T, C] etc
     if x.dim() == 4 and x.size(2) == 1:
         x = x.squeeze(2)
     if x.dim() == 3 and x.size(1) != 8:
@@ -34,6 +41,7 @@ def transform_for_gnn(x):
     elif T > 200:
         x = x[:, :, :200]
     return x
+
 
 class Diversify(Algorithm):
     def __init__(self, args):
@@ -84,14 +92,21 @@ class Diversify(Algorithm):
                 break
 
     def ensure_correct_dimensions(self, x):
+        # If it's a PyG Data/Batch, we assume it already has the right shape
+        if isinstance(x, (Data, Batch)):
+            return x
+
+        # Otherwise force it into [B, 8, 1, 200]
         if x.dim() == 3:
-            x = x.unsqueeze(2)
+            return x.unsqueeze(2)   # [B,8,200] -> [B,8,1,200]
         elif x.dim() == 4:
-            if x.shape[1:] != (self.args.input_shape[0], 1, self.args.input_shape[-1]):
-                raise ValueError(f"Unexpected 4D shape: {x.shape}")
+            expected = (self.args.input_shape[0], 1, self.args.input_shape[-1])
+            if x.shape[1:] != expected:
+                raise ValueError(f"Unexpected 4D shape: {x.shape}, expected [B{expected}]")
+            return x
         else:
             raise ValueError(f"Unsupported x.dim(): {x.dim()}")
-        return x
+
 
     def update_d(self, batch, opt):
         x, c, d = batch
