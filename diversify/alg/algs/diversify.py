@@ -157,30 +157,33 @@ class Diversify(Algorithm):
         raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
         y = y.to(device).long()
         d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
+
+        # 1) reshape EMG -> [B,8,1,200]
+        x = to_device(raw_x, device)                # whatever collate_gnn gave you
+        x = transform_for_gnn(x)                    # -> [B,8,200]
+        x = self.ensure_correct_dimensions(x)       # -> [B,8,1,200]
+
+        # 2) forward through your TemporalGCN (will build edges under the hood)
+        features = self.featurizer(x)               # -> [B, gnn_output_dim]
+
+        # 3) bottleneck + classifier
+        z = self.abottleneck(features)              # -> [B, bottleneck]
+        preds = self.aclassifier(z)                 # -> [B*T?, num_classes*latent_domain]
+
+        # 4) combine y+d labels
         maxc = self.aclassifier.fc.out_features
         yc = (d * self.args.num_classes + y).clamp(0, maxc - 1)
 
-        # GNN path vs CNN path
-            # ── NEW ──
-        if self.args.use_gnn:
-            # always treat raw_x as a tensor, never a DataBatch
-            x = to_device(raw_x, device)              # [B,1,200] or [B,8,200]
-            x = transform_for_gnn(x)                  # → [B,8,200]
-            x = self.ensure_correct_dimensions(x)     # → [B,8,1,200]
-            feat = self.featurizer(x)                 # TemporalGCN(x, edge_index=None)
+        # 5) if your a-classifier somehow spit out B*T rows, collapse:
+        if preds.size(0) != yc.size(0):
+            B = yc.size(0)
+            T = preds.size(0)//B
+            preds = preds.view(B, T, -1).mean(1)
 
-        else:
-            x = to_device(raw_x, device)
-            x = self.ensure_correct_dimensions(x)
-            feat = self.featurizer(x)
-
-        z = self.abottleneck(feat)
-        pred = self.aclassifier(z)
-        if pred.size(0) != yc.size(0):
-            B = yc.size(0); T = pred.size(0) // B
-            pred = pred.view(B, T, -1).mean(1)
-        loss = F.cross_entropy(pred, yc)
-        opt.zero_grad(); loss.backward(); opt.step()
+        loss = F.cross_entropy(preds, yc)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
         return {'class': loss.item()}
 
     def predict(self, x):
