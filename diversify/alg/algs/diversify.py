@@ -65,7 +65,7 @@ class Diversify(Algorithm):
         with torch.no_grad():
             if getattr(self.args, "use_gnn", False):
                 num_nodes = self.args.input_shape[0]       # 8
-                node_features = sample.view(num_nodes, -1)[:num_nodes]  # [8, 200]
+                node_features = sample.squeeze(1)          # [8, 200]
                 dummy_edge_index = torch.zeros(2, 0, dtype=torch.long, device=sample.device)
                 dummy_data = Data(x=node_features, edge_index=dummy_edge_index)
                 actual = self.featurizer(dummy_data).shape[-1]
