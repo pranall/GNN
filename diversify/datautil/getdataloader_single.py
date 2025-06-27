@@ -161,4 +161,5 @@ def get_act_dataloader(args):
     targetdata = combindataset(args, target_datalist)
     targetdata = ConsistentFormatWrapper(targetdata)
 
+    print(f"Train samples: {len(tr)}, Val samples: {len(val)}, Target samples: {len(targetdata)}")
     return (*get_dataloader(args, tr, val, targetdata), tr, val, targetdata)
