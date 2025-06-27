@@ -146,20 +146,18 @@ def main(args):
             res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
 
-        for x, y, d in train_loader:
-            x = x.to(args.device)
-            y = y.to(args.device)
-            d = d.to(args.device)
-            res = algorithm.update_d([x, y, d], optimizer)
-            logs['dis_loss'].append(res['dis'])
-            logs['ent_loss'].append(res['ent'])
-            logs['total_loss'].append(res['total'])
+        # 3) Domain-invariant feature learning
+    for x, y, d in train_loader:
+        if args.use_gnn:
+          x = x.to(args.device)
+        else:
+          x = x.to(args.device).float()
+          y = y.to(args.device)
+          # d = d.to(args.device)   # no longer needed here
 
-        for x, y, d in train_loader:
-            x = x.to(args.device)
-            y = y.to(args.device)
-            d = d.to(args.device)
-            _ = algorithm.update([x, y, d], optimizer)
+          # pass only (x, y)
+          _ = algorithm.update((x, y), optimizer)
+
 
         # Evaluation
         acc_fn = modelopera.accuracy
