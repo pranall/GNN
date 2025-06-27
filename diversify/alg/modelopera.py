@@ -6,7 +6,7 @@ def get_fea(args):
     """Initialize feature extractor network with GNN support"""
     if hasattr(args, 'model_type') and args.model_type == 'gnn':
         # Default values if not present
-        input_dim = 8  # EMG channels
+        input_dim = args.input_shape[2]
         hidden_dim = getattr(args, 'gnn_hidden_dim', 64)
         output_dim = getattr(args, 'gnn_output_dim', 256)
         
