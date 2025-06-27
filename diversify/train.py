@@ -52,6 +52,12 @@ def main(args):
     print(print_args(args, []))
     args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {args.device}")
+    if args.use_gnn:
+        print("✅ GNN (TemporalGCN) is active for training.")
+    else:
+        print("⚠️ Using CNN-based baseline model.")
+
+    print(f"Using device: {args.device}")
     os.makedirs(args.output, exist_ok=True)
 
     args.steps_per_epoch = min(100, args.batch_size * 10)
