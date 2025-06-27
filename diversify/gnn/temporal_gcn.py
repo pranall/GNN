@@ -4,7 +4,11 @@ import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, GATConv
 from gnn.graph_builder import GraphBuilder
 import numpy as np
+from torch_geometric.data import Data
 
+def get_shape(x):
+    return x.x.shape if hasattr(x, 'x') else x.shape
+    
 class TemporalGCN(nn.Module):
     """
     Temporal Graph Convolutional Network for sensor-based activity recognition
@@ -51,7 +55,7 @@ class TemporalGCN(nn.Module):
 
     def forward(self, x):
         # Save original shape for reconstruction
-        original_shape = x.shape
+        original_shape = x.x.shape if hasattr(x, 'x') else x.shape
         
         # Handle different input dimensions
         if x.dim() == 2:
