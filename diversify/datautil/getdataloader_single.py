@@ -261,7 +261,7 @@ def get_act_dataloader(args):
             args, 
             args.dataset, 
             args.data_dir, 
-            item, 
+            tmpp, 
             i, 
             transform=transform
         )
