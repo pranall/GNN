@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, global_mean_pool
-from torch_geometric.data import Data, Batch
 
 class TemporalGCN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, graph_builder=None):
@@ -11,28 +10,32 @@ class TemporalGCN(nn.Module):
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
         self.graph_builder = graph_builder
-        
-        # GCN layers
+
+        # two GCN layers (they produce hidden_dim features per node)
         self.gcn1 = GCNConv(input_dim, hidden_dim)
         self.gcn2 = GCNConv(hidden_dim, hidden_dim)
-        
-        # Project pooled features to desired output_dim
+        # **project pooled graph-level features to output_dim**
         self.classifier = nn.Linear(hidden_dim, output_dim)
-        
-        # Expose in_features for downstream blocks
+
+        # downstream code reads featurizer.in_features to size its bottlenecks
         self.in_features = output_dim
 
     def forward(self, data):
-        # data is a torch_geometric.data.Data or Batch
         x, edge_index, batch = data.x, data.edge_index, data.batch
+
+        # flatten any extra dims on x (e.g. [N,1,200] → [N,200])
+        if x.dim() > 2:
+            x = x.view(x.size(0), -1)
 
         h = F.relu(self.gcn1(x, edge_index))
         h = F.relu(self.gcn2(h, edge_index))
 
-        # now batch has length == h.size(0)
-        hg = global_mean_pool(h, batch)   # [num_graphs, hidden_dim]
-        return hg
+        # pool per-graph
+        hg = global_mean_pool(h, batch)   # [batch_size, hidden_dim]
+
+        # **project up to output_dim**
+        out = self.classifier(hg)         # [batch_size, output_dim]
+        return out
 
     def reconstruct(self, features):
-        # Optional pretraining reconstruction
         return self.recon(features)
