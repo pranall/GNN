@@ -65,11 +65,14 @@ class TemporalGCN(nn.Module):
         elif x.dim() == 4:
             x = x.squeeze(2)
         
-        # Always permute to [batch, channels, time] assuming input is [batch, time, channels]
-        if x.shape[-1] == self.input_dim:
+        # Ensure input is [B, C, T]
+        if x.shape[1] == self.input_dim:
+            pass  # already in [B, C, T]
+        elif x.shape[-1] == self.input_dim:
             x = x.permute(0, 2, 1)  # from [B, T, C] → [B, C, T]
-        elif x.shape[1] != self.input_dim:
-            raise ValueError(f"Expected input with {self.input_dim} channels, got shape {x.shape}")
+        else:
+            raise ValueError(f"Expected one dimension to match input_dim={self.input_dim}, but got shape {x.shape}")
+
         
         batch_size, channels, timesteps = x.shape
         print("Input shape to Conv1d:", x.shape)
