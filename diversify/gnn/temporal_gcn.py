@@ -65,14 +65,14 @@ class TemporalGCN(nn.Module):
         elif x.dim() == 4:
             x = x.squeeze(2)
         
-        # Now x should be 3D: [batch, channels, timesteps]
-        # Convert to [batch, channels, timesteps] for Conv1d
-        if x.size(1) != self.input_dim:
-            # Input is [batch, timesteps, channels] -> permute to [batch, channels, timesteps]
-            x = x.permute(0, 2, 1)
+        # Always permute to [batch, channels, time] assuming input is [batch, time, channels]
+        if x.shape[-1] == self.input_dim:
+            x = x.permute(0, 2, 1)  # from [B, T, C] → [B, C, T]
+        elif x.shape[1] != self.input_dim:
+            raise ValueError(f"Expected input with {self.input_dim} channels, got shape {x.shape}")
         
         batch_size, channels, timesteps = x.shape
-        
+        print("Input shape to Conv1d:", x.shape)
         # Temporal convolution: [batch, features, timesteps]
         x = self.temporal_conv(x)  # Output: [batch, 32, timesteps//4]
         _, features, reduced_timesteps = x.shape
