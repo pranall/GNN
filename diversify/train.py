@@ -10,6 +10,7 @@ from torch_geometric.loader import DataLoader as PyGDataLoader
 from torch.utils.data import DataLoader as TorchDataLoader
 from gnn.temporal_gcn import TemporalGCN
 from gnn.graph_builder import GraphBuilder
+from torch_geometric.data import Data
 
 class DomainAdversarialLoss(nn.Module):
     def __init__(self, bottleneck_dim):
