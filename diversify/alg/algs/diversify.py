@@ -245,7 +245,9 @@ class Diversify(Algorithm):
                 raise ValueError(f"Unexpected 4D shape for input: {x.shape}")
         else:
             raise ValueError(f"Unsupported input shape: {x.shape}")
-        print(f"x shape: {x.shape}")
+        if not hasattr(self, "_x_shape_printed"):
+            print(f"x shape: {x.shape}")
+            self._x_shape_printed = True
         return x
 
     def update(self, data, opt):
