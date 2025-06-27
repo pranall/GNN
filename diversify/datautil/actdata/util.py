@@ -32,7 +32,7 @@ def act_to_graph_transform(args):
         transforms.ToTensor(),
         StandardScaler(),
         # Changed to output [channels, time_steps] for GNN
-        lambda x: x.squeeze(1)  # Remove middle dimension
+        lambda x: x.view(args.input_shape[0], args.input_shape[2])  # Remove middle dimension
     ])
 
 def loaddata_from_numpy(dataset='dsads', task='cross_people', root_dir='./data/act/'):
