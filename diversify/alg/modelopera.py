@@ -51,7 +51,7 @@ def predict_proba(network, x):
     """
     network.eval()
     with torch.no_grad():
-        x = x.cuda().float()
+        x = x.to(device).float()
         logits = network.predict(x)
         
         # Handle multi-dimensional outputs
