@@ -151,9 +151,9 @@ def main(args):
 
         # Evaluation
         acc_fn = modelopera.accuracy
-        logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, args.device))
-        logs['val_acc'].append  (acc_fn(algorithm, val_loader, args.device))
-        logs['test_acc'].append (acc_fn(algorithm, test_loader, args.device))
+        logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, device))
+        logs['val_acc'].append  (acc_fn(algorithm, val_loader, device))
+        logs['test_acc'].append (acc_fn(algorithm, test_loader, device))
 
         scheduler.step()
         if logs['val_acc'][-1] > best_val:
