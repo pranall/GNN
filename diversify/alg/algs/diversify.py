@@ -3,18 +3,17 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from collections import Counter
 import numpy as np
-from torch.utils.data import Subset
+from collections import Counter
 from sklearn.cluster import KMeans
 
+from torch.utils.data import Subset
 from alg.modelopera import get_fea
 from alg.algs.base import Algorithm
 from loss.common_loss import Entropylogits
 from network import Adver_network, common_network
 
 # Utility: move tensors to device
-
 def to_device(batch, device):
     if isinstance(batch, torch.Tensor):
         return batch.to(device).float()
@@ -25,7 +24,7 @@ def to_device(batch, device):
 
 # Reshape raw EMG tensors for GNN: output [B, C=8, T=200]
 def transform_for_gnn(x):
-    # only handle torch.Tensor
+    # only handle torch.Tensor inputs
     if not isinstance(x, torch.Tensor):
         return x
     # collapse extra dims [B, C, 1, T] -> [B, C, T]
@@ -48,7 +47,7 @@ class Diversify(Algorithm):
         super().__init__(args)
         self.args = args
         self.featurizer = get_fea(args)
-        # components
+        # discriminators, bottlenecks, classifiers
         self.dbottleneck = common_network.feat_bottleneck(
             self.featurizer.in_features, args.bottleneck, args.layer)
         self.ddiscriminator = Adver_network.Discriminator(
@@ -82,7 +81,7 @@ class Diversify(Algorithm):
             dummy_e = torch.stack([idx, idx], dim=0)
             actual = self.featurizer(x, dummy_e).shape[-1]
             print(f"Detected actual feature dimension: {actual}")
-        # patch skip-connection linear if mismatch
+        # patch skip connection Linear layer
         for name, m in self.featurizer.named_modules():
             if isinstance(m, nn.Linear) and 'skip' in name.lower():
                 if m.in_features != actual:
@@ -99,14 +98,15 @@ class Diversify(Algorithm):
                 break
 
     def ensure_correct_dimensions(self, x):
-        # ensure [B,8,1,200]
+        # from [B,8,200] or [B,200,8] to [B,8,1,200]
         if x.dim() == 3:
             if x.shape[1] == self.args.input_shape[0] and x.shape[2] == self.args.input_shape[-1]:
                 x = x.unsqueeze(2)
             else:
                 x = x.permute(0, 2, 1).unsqueeze(2)
         elif x.dim() == 4:
-            if x.shape[1:] != (self.args.input_shape[0], 1, self.args.input_shape[-1]):
+            expected = (self.args.input_shape[0], 1, self.args.input_shape[-1])
+            if x.shape[1:] != expected:
                 raise ValueError(f"Unexpected 4D shape: {x.shape}")
         else:
             raise ValueError(f"Unsupported x.dim(): {x.dim()}")
@@ -158,28 +158,31 @@ class Diversify(Algorithm):
         return {'class': loss.item()}
 
     def update_a(self, minibatches, opt):
+        print("🎯 HIT our new update_a!")
         device = next(self.parameters()).device
         raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
         y = y.to(device).long()
         d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
         maxc = self.aclassifier.fc.out_features
         yc = (d * self.args.num_classes + y).clamp(0, maxc - 1)
+
         # GNN path (raw tensor)
-        if self.args.use_gnn:
-            x = to_device(raw_x, device)
-            x = transform_for_gnn(x)
-            x = self.ensure_correct_dimensions(x)
-            print("🔥 GNN Tensor branch, input shape:", x.shape)
-            feat = self.featurizer(x)
-        else:
-            x = to_device(raw_x, device)
-            x = self.ensure_correct_dimensions(x)
-            feat = self.featurizer(x)
+        x = to_device(raw_x, device)
+        x = transform_for_gnn(x)
+        x = self.ensure_correct_dimensions(x)
+        print("🔥 GNN Tensor branch, input shape:", x.shape)
+        feat = self.featurizer(x)
+
+        # bottleneck + classifier
         z = self.abottleneck(feat)
         pred = self.aclassifier(z)
+
+        # align time‐step dimension back to batch
         if pred.size(0) != yc.size(0):
-            B = yc.size(0); T = pred.size(0) // B
-            pred = pred.view(B, T, -1).mean(1)
+            B = yc.size(0)
+            T = pred.size(0) // B
+            pred = pred.view(B, T, -1).mean(dim=1)
+
         loss = F.cross_entropy(pred, yc)
         opt.zero_grad(); loss.backward(); opt.step()
         return {'class': loss.item()}
