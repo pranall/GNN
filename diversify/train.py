@@ -113,7 +113,7 @@ def main(args):
             x = algorithm.ensure_correct_dimensions(x.to(args.device))
             y = y.to(args.device)
             d = d.to(args.device)
-            res = algorithm.update_a(x, y, d, optimizer)  # temporarily duplicate for testing
+            res = algorithm.update_a([x, y, d, y, d], optimizer)  # temporarily duplicate for testing
             logs['class_loss'].append(res['class'])
         # 2) Latent domain characterization
         for x, y, d in train_loader:
