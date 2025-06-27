@@ -111,14 +111,14 @@ def main(args):
         algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
         algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
 
-        # ─── QUICK GNN SMOKE TEST ───
-        demo_x   = torch.randn(32, 8, 1, 200, device=args.device)
-        demo_idx = torch.arange(200, device=args.device)
-        demo_e   = torch.stack([demo_idx, demo_idx], dim=0)
+        # 8 nodes, each with 200 features (like one EMG window)
+        demo_x = torch.randn(8, 200, device=args.device)
+        demo_e = torch.zeros(2, 0, dtype=torch.long, device=args.device)  # No edges
+
         with torch.no_grad():
-            demo_out = algorithm.featurizer(demo_x, demo_e)
+            demo_data = Data(x=demo_x, edge_index=demo_e)
+            demo_out = algorithm.featurizer(demo_data)
         print("✅ Quick GNN smoke test output shape:", demo_out.shape)
-        # ────────────────────────────
 
     algorithm.train()
 
@@ -135,24 +135,15 @@ def main(args):
 
     for epoch in range(1, args.max_epoch + 1):
         start_time = time.time()
-        # 1) Feature update
         for x, y, d in train_loader:
-            if not args.use_gnn:
-                x = algorithm.ensure_correct_dimensions(x.to(args.device))
-            else:
-                x = x.to(args.device)
+            x = x.to(args.device)
             y = y.to(args.device)
             d = d.to(args.device)
             res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
 
-        # 2) Latent domain characterization
         for x, y, d in train_loader:
-            if args.use_gnn:
-                x = x.to(args.device)
-                x = fix_emg_shape(x)
-            else:
-                x = x.to(args.device).float()
+            x = x.to(args.device)
             y = y.to(args.device)
             d = d.to(args.device)
             res = algorithm.update_d([x, y, d], optimizer)
@@ -160,13 +151,8 @@ def main(args):
             logs['ent_loss'].append(res['ent'])
             logs['total_loss'].append(res['total'])
 
-        # 3) Domain-invariant feature learning
         for x, y, d in train_loader:
-            if args.use_gnn:
-                x = x.to(args.device)
-                x = fix_emg_shape(x)
-            else:
-                x = x.to(args.device).float()
+            x = x.to(args.device)
             y = y.to(args.device)
             d = d.to(args.device)
             _ = algorithm.update([x, y, d], optimizer)
