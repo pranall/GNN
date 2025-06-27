@@ -98,9 +98,9 @@ def collate_gnn(batch):
         # Fix shape: convert [C, 1, T] → [C, T]
         if isinstance(g, torch.Tensor):
             if g.ndim == 3 and g.shape[1] == 1:
-                g = g.squeeze(1)  # [8, 1, 200] → [8, 200]
+                g = g.squeeze(1)  # [8, 1, 200] -> [8, 200]
             if g.ndim == 2:
-                g = g.unsqueeze(0)  # [8, 200] → [1, 8, 200]
+                g = g.unsqueeze(0)  # [8, 200] -> [1, 8, 200]
         graphs.append(g)
         labels.append(y)
         domains.append(d)
