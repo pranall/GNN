@@ -76,7 +76,7 @@ class Diversify(Algorithm):
                 if x.dim() == 4 and x.size(2) == 1:
                     x = x.squeeze(2)
                 actual = self.featurizer(x).shape[-1]
-            print(f"Detected actual feature dimension: {actual}")
+            
         for name, m in self.featurizer.named_modules():
             if isinstance(m, nn.Linear) and 'skip' in name.lower():
                 if m.in_features != actual:
