@@ -14,7 +14,7 @@ class TemporalGCN(nn.Module):
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
 
-        # Temporal feature extractor
+        # Temporal feature extractor (for raw EMG tensors)
         self.temporal_conv = nn.Sequential(
             nn.Conv1d(input_dim, 16, kernel_size=5, padding=2),
             nn.ReLU(),
@@ -32,48 +32,52 @@ class TemporalGCN(nn.Module):
         self.classifier = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x, edge_index=None, batch=None):
-        # --- allow PyG Data object as input ---
+        # --- Case 1: input is a PyG Data object, skip temporal conv ---
         if isinstance(x, Data):
             data = x
-            x, edge_index, batch = data.x, data.edge_index, getattr(data, 'batch', None)
+            node_feat, edge_index, batch = data.x, data.edge_index, getattr(data, 'batch', None)
+            h = F.relu(self.gcn1(node_feat, edge_index))
+            h = F.relu(self.gcn2(h, edge_index))
+            if batch is not None:
+                h = global_mean_pool(h, batch)
+            else:
+                # assume one graph: mean over nodes
+                h = h.mean(dim=0, keepdim=True)
+            return self.classifier(h)
 
-        # --- normalize raw Tensor shapes ---
+        # --- Case 2: raw tensor input [B, C, T] or variants ---
+        # normalize raw Tensor shapes
         if isinstance(x, torch.Tensor):
             # collapse [B, C, 1, T] -> [B, C, T]
             if x.dim() == 4 and x.size(2) == 1:
                 x = x.squeeze(2)
-            # permute [B, T, C] -> [B, C, T] if channels mismatch
+            # swap [B, T, C] -> [B, C, T] if needed
             if x.dim() == 3 and x.size(1) != self.input_dim:
                 x = x.permute(0, 2, 1)
 
-        # now expect [B, C, T]
+        # now x should be [B, C, T]
         B, C, T = x.shape
-
         # temporal convolution -> [B, 32, T//4]
         x_temp = self.temporal_conv(x)
         _, feat_dim, new_T = x_temp.shape
+        # flatten for GCN: each time step is a node
+        x_temp = x_temp.permute(0, 2, 1).reshape(-1, feat_dim)
 
-        # flatten for graph conv: treat each time step as node
-        x_temp = x_temp.permute(0, 2, 1).reshape(-1, feat_dim)  # [B*new_T, feat_dim]
-
-        # if no edge_index, build via graph_builder
+        # build edge_index if missing
         if edge_index is None:
             if self.graph_builder is None:
-                raise ValueError("No edge_index or graph_builder provided to TemporalGCN.forward")
+                raise ValueError("No edge_index or graph_builder for TemporalGCN")
             gb_data = self.graph_builder(x_temp.view(B, new_T, feat_dim).cpu().numpy())
             edge_index = gb_data.edge_index.to(x_temp.device)
 
-        # graph convolutions
+        # GCN layers
         h = F.relu(self.gcn1(x_temp, edge_index))
         h = F.relu(self.gcn2(h, edge_index))
-
         # pool back to graph-level
         if batch is not None:
-            h = global_mean_pool(h, batch)  # [B, hidden_dim]
+            h = global_mean_pool(h, batch)
         else:
             h = h.view(B, new_T, self.hidden_dim).mean(dim=1)
-
-        # classifier
         return self.classifier(h)
 
     def reconstruct(self, features):
