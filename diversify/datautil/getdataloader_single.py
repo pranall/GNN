@@ -137,7 +137,7 @@ def get_act_dataloader(args):
     source_datasetlist = []
     target_datalist = []
     for i, person in enumerate(tmpp):
-        transform = actutil.act_to_graph_transform(args) if args.model_type == 'gnn' else actutil.act_train()
+        transform = actutil.act_to_graph_transform(args) if getattr(args, 'use_gnn', False) else actutil.act_train()
         tdata = task.ActList(args, args.dataset, args.data_dir, tmpp, i, transform=transform)
         if i in args.test_envs:
             target_datalist.append(tdata)
