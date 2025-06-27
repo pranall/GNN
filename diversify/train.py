@@ -34,16 +34,13 @@ def fix_emg_shape(x):
     if isinstance(x, torch.Tensor):
         if x.dim() == 3:
             if x.shape[1] == 1 and x.shape[2] == 200:
-                # [batch, 1, 200] -> [batch, 8, 200] (repeat across channels)
                 x = x.repeat(1, 8, 1)
             elif x.shape[1] == 200 and x.shape[2] == 1:
-                # [batch, 200, 1] -> [batch, 200, 8], then permute to [batch, 8, 200]
                 x = x.repeat(1, 1, 8).permute(0, 2, 1)
             elif x.shape[1] == 8 and x.shape[2] == 200:
-                pass  # correct shape
+                pass
             elif x.shape[1] == 200 and x.shape[2] == 8:
                 x = x.permute(0, 2, 1)
-        # If PyG Batch object, skip
     return x
 
 def main(args):
@@ -57,10 +54,9 @@ def main(args):
     else:
         print("⚠️ Using CNN-based baseline model.")
 
-    print(f"Using device: {args.device}")
     os.makedirs(args.output, exist_ok=True)
-
     args.steps_per_epoch = min(100, args.batch_size * 10)
+
     # Load data loaders
     train_loader, train_ns_loader, val_loader, test_loader, _, _, _ = get_act_dataloader(args)
 
@@ -95,9 +91,18 @@ def main(args):
                 return nn.Linear(in_dim, out_dim)
 
         in_dim, out_dim = args.gnn_output_dim, int(args.bottleneck)
-        algorithm.bottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
+        algorithm.bottleneck  = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
         algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
         algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
+
+        # ─── QUICK GNN SMOKE TEST ───
+        demo_x   = torch.randn(32, 8, 1, 200, device=args.device)
+        demo_idx = torch.arange(200, device=args.device)
+        demo_e   = torch.stack([demo_idx, demo_idx], dim=0)
+        with torch.no_grad():
+            demo_out = algorithm.featurizer(demo_x, demo_e)
+        print("✅ Quick GNN smoke test output shape:", demo_out.shape)
+        # ────────────────────────────
 
     algorithm.train()
 
@@ -119,11 +124,9 @@ def main(args):
             if not args.use_gnn:
                 x = algorithm.ensure_correct_dimensions(x.to(args.device))
             else:
-                x = x.to(args.device)  # PyG Batch — leave structure intact
+                x = x.to(args.device)
             y = y.to(args.device)
             d = d.to(args.device)
-            print("EMG batch shape before update_a:", x.x.shape)
-            print("First sample tensor x[0]:", x[0])
             res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
 
@@ -140,6 +143,7 @@ def main(args):
             logs['dis_loss'].append(res['dis'])
             logs['ent_loss'].append(res['ent'])
             logs['total_loss'].append(res['total'])
+
         # 3) Domain-invariant feature learning
         for x, y, d in train_loader:
             if args.use_gnn:
