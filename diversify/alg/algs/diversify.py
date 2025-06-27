@@ -281,21 +281,28 @@ class Diversify(Algorithm):
     def update_a(self, minibatches, opt):
         device = next(self.parameters()).device
         all_x = to_device(minibatches[0], device)
-        all_x = self.ensure_correct_dimensions(all_x)
+
+        # ✅ Only reshape if input is a regular Tensor (i.e., for CNNs)
+        if isinstance(all_x, torch.Tensor):
+            all_x = self.ensure_correct_dimensions(all_x)
+
         all_c = minibatches[1].to(device).long()
         if len(minibatches) >= 5:
             all_d = minibatches[4].to(device).long()
         else:
             all_d = minibatches[2].to(device).long()
+
         n_domains = self.args.latent_domain_num
-        all_d = torch.clamp(all_d, 0, n_domains-1)
+        all_d = torch.clamp(all_d, 0, n_domains - 1)
         all_y = all_d * self.args.num_classes + all_c
         max_class = self.aclassifier.fc.out_features
-        all_y = torch.clamp(all_y, 0, max_class-1)
+        all_y = torch.clamp(all_y, 0, max_class - 1)
+
         all_z = self.abottleneck(self.featurizer(all_x))
         if self.explain_mode:
             all_z = all_z.clone()
         all_preds = self.aclassifier(all_z)
+
         # ==== BATCH ALIGNMENT for all_preds ====
         if all_preds.shape[0] != all_y.shape[0]:
             batch_size = all_y.shape[0]
@@ -304,14 +311,17 @@ class Diversify(Algorithm):
                 all_preds = all_preds.view(batch_size, time_steps, -1).mean(dim=1)
             else:
                 raise ValueError(f"all_preds shape {all_preds.shape} and all_y shape {all_y.shape} not compatible.")
+
         classifier_loss = F.cross_entropy(all_preds, all_y)
         opt.zero_grad()
         classifier_loss.backward()
         opt.step()
         return {'class': classifier_loss.item()}
 
+
     def predict(self, x):
-        x = self.ensure_correct_dimensions(x)
+        if isinstance(x, torch.Tensor):
+            x = self.ensure_correct_dimensions(x)
         device = next(self.parameters()).device
         x = to_device(x, device)
         features = self.featurizer(x)
@@ -321,7 +331,8 @@ class Diversify(Algorithm):
         return self.classifier(bottleneck_out)
     
     def predict1(self, x):
-        x = self.ensure_correct_dimensions(x)
+        if isinstance(x, torch.Tensor):
+            x = self.ensure_correct_dimensions(x)
         device = next(self.parameters()).device
         x = to_device(x, device)
         features = self.featurizer(x)
@@ -332,7 +343,8 @@ class Diversify(Algorithm):
     
     def forward(self, batch):
         inputs = batch[0]
-        inputs = self.ensure_correct_dimensions(inputs)
+        if isinstance(inputs, torch.Tensor):
+            inputs = self.ensure_correct_dimensions(inputs)
         device = next(self.parameters()).device
         inputs = to_device(inputs, device)
         labels = batch[1]
@@ -341,13 +353,14 @@ class Diversify(Algorithm):
         labels = labels.long()
         class_loss = self.criterion(preds, labels)
         return {'class': class_loss}
-    
+
     def explain(self, x):
         original_mode = self.explain_mode
         try:
             self.explain_mode = True
             with torch.no_grad():
-                x = self.ensure_correct_dimensions(x)
+                if isinstance(x, torch.Tensor):
+                    x = self.ensure_correct_dimensions(x)
                 device = next(self.parameters()).device
                 x = to_device(x, device)
                 return self.predict(x)
