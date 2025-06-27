@@ -59,6 +59,22 @@ def main(args):
 
     # Load data loaders
     train_loader, train_ns_loader, val_loader, test_loader, _, _, _ = get_act_dataloader(args)
+    # — Debug: inspect the *first batch* coming out of the loader —
+    batch = next(iter(train_loader))
+    x, y, d = batch
+    print("🔎 BATCH X type     :", type(x))
+    if hasattr(x, 'x'):
+        # PyG Batch object
+        print(" x.x.shape          :", x.x.shape)
+        print(" x.edge_index.shape:", x.edge_index.shape)
+        print(" x.batch.shape      :", x.batch.shape)
+    else:
+        # raw tensor
+        print(" raw tensor shape   :", x.shape)
+    print(" labels y.shape     :", y.shape)
+    print(" domains d.shape    :", d.shape)
+    # — end debug —
+
 
     # Initialize Diversify algorithm
     AlgoClass = alg.get_algorithm_class(args.algorithm)
