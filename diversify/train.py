@@ -87,12 +87,15 @@ def main(args):
             method='correlation', threshold_type='adaptive',
             default_threshold=0.3, adaptive_factor=1.5
         )
+        # RIGHT: in_dim is feature-length (time steps)
+        feat_len = args.input_shape[-1]  # 200
         gnn = TemporalGCN(
-            input_dim=8,
+            input_dim=feat_len,
             hidden_dim=args.gnn_hidden_dim,
             output_dim=args.gnn_output_dim,
             graph_builder=graph_builder
         ).to(args.device)
+
         algorithm.featurizer = gnn
 
         def make_bottleneck(in_dim, out_dim, layers):
