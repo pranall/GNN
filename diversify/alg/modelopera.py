@@ -16,67 +16,27 @@ def get_fea(args):
     else:
         return act_network.ActNetwork(args.dataset)
 
-def accuracy(network, loader, weights=None, usedpredict='p', transform_fn=None):
-    """
-    Calculate accuracy for a given data loader with support for:
-    - Sample weighting
-    - Multiple prediction methods
-    - Both binary and multiclass classification
-    - Handling of different dimensional outputs
-    
-    Args:
-        network: Model to evaluate
-        loader: Data loader (returns 0.0 if None)
-        weights: Sample weights (optional)
-        usedpredict: Prediction method ('p' for predict, otherwise predict1)
-        
-    Returns:
-        Accuracy score (float)
-    """
-    if loader is None:
-        return 0.0
-    
-    correct = 0
-    total = 0
-    weights_offset = 0
-
-    network.eval()
+# inside alg/modelopera.py
+def accuracy(model, loader, device):
+    model.eval()
+    correct = total = 0
     with torch.no_grad():
-        for data in loader:
-            x = data[0].cuda().float()
-            y = data[1].cuda().long()
+        for batch in loader:
+            x, y = batch[0], batch[1]
+            if hasattr(x, 'x'):
+                # PyG Data or Batch
+                data = x.to(device)
+                out = model(data)              # your model.forward handles DataBatch
+            else:
+                # plain tensor
+                xt = x.to(device).float()
+                out = model(xt)
+            y = y.to(device)
+            preds = out.argmax(dim=1)
+            correct += (preds == y).sum().item()
+            total += y.size(0)
+    return correct / total
 
-            if transform_fn:
-                x = transform_fn(x)
-            # Select prediction method
-            if usedpredict == 'p':
-                p = network.predict(x)
-            else:
-                p = network.predict1(x)
-            
-            # Handle multi-dimensional outputs
-            if p.dim() > 2:
-                p = p.squeeze(1)
-            
-            # Handle sample weights
-            if weights is None:
-                batch_weights = torch.ones(len(x))
-            else:
-                batch_weights = weights[weights_offset:weights_offset + len(x)]
-                weights_offset += len(x)
-            
-            batch_weights = batch_weights.cuda()
-            
-            # Calculate correct predictions
-            if p.size(1) == 1:  # Binary classification
-                correct += (p.gt(0).eq(y).float() * batch_weights.view(-1, 1)).sum().item()
-            else:  # Multiclass classification
-                correct += (p.argmax(1).eq(y).float() * batch_weights).sum().item()
-            
-            total += batch_weights.sum().item()
-    
-    network.train()
-    return correct / total if total > 0 else 0.0
 
 def predict_proba(network, x):
     """
