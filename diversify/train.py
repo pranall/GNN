@@ -1,138 +1,169 @@
+import os
 import time
-import pickle
-from pathlib import Path
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.optim import Adam
-from sklearn.metrics import f1_score, precision_score, recall_score
-from torch_geometric.data import Batch
-
-from alg.opt import *
+import torch.optim as optim
 from alg import alg, modelopera
-from utils.util import set_random_seed, get_args, print_row, print_args, train_valid_target_eval_names, alg_loss_dict, print_environ
+from utils.util import set_random_seed, get_args, print_args, print_environ
 from datautil.getdataloader_single import get_act_dataloader
+from torch_geometric.loader import DataLoader as PyGDataLoader
+from torch.utils.data import DataLoader as TorchDataLoader
 from gnn.temporal_gcn import TemporalGCN
-from gnn.graph_builder import GraphBuilder  # if needed directly
-from datautil.graph_utils import convert_to_graph
-import numpy as np
-import random
+from gnn.graph_builder import GraphBuilder
 
-def set_random_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+class DomainAdversarialLoss(nn.Module):
+    def __init__(self, bottleneck_dim):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            nn.Linear(bottleneck_dim, 50),
+            nn.ReLU(),
+            nn.Linear(50, 1)
+        )
+        self.loss_fn = nn.BCEWithLogitsLoss()
 
-@torch.no_grad()
-def evaluate(model, loader, device):
-    model.eval()
-    correct, total = 0, 0
-    all_y, all_pred = [], []
-    for batch in loader:
-        batch = batch.to(device)
-        preds = model(batch).argmax(dim=1)
-        all_y.extend(batch.y.cpu().numpy())
-        all_pred.extend(preds.cpu().numpy())
-        correct += (preds == batch.y).sum().item()
-        total += batch.y.size(0)
-    acc = correct / total if total > 0 else 0
-    f1 = f1_score(all_y, all_pred, average='macro')
-    precision = precision_score(all_y, all_pred, average='macro')
-    recall = recall_score(all_y, all_pred, average='macro')
-    return acc, f1, precision, recall
+    def forward(self, features, labels):
+        preds = self.classifier(features).squeeze()
+        return self.loss_fn(preds, labels.float())
 
-def main():
-    class Args:
-        seed = 42
-        max_epoch = 20
-        local_epoch = 3
-        output = "./data/train_output/"
-        batch_size = 32
-        N_WORKERS = 2
-        model_type = "gnn"
-        algorithm = "gnn"
-        num_classes = 6
-        data_dir = "./data/"
-        task = "cross_people"
-        dataset = "emg"
-        act_people = {
-            "emg": list(range(36))
-        }
-        latent_domain_num = 3
+def fix_emg_shape(x):
+    """
+    Ensures input x is [batch, 8, 200] for GNN.
+    Accepts: [batch, 1, 200], [batch, 200, 1], [batch, 8, 200], [batch, 200, 8].
+    Returns: [batch, 8, 200]
+    """
+    if isinstance(x, torch.Tensor):
+        if x.dim() == 3:
+            if x.shape[1] == 1 and x.shape[2] == 200:
+                # [batch, 1, 200] -> [batch, 8, 200] (repeat across channels)
+                x = x.repeat(1, 8, 1)
+            elif x.shape[1] == 200 and x.shape[2] == 1:
+                # [batch, 200, 1] -> [batch, 200, 8], then permute to [batch, 8, 200]
+                x = x.repeat(1, 1, 8).permute(0, 2, 1)
+            elif x.shape[1] == 8 and x.shape[2] == 200:
+                pass  # correct shape
+            elif x.shape[1] == 200 and x.shape[2] == 8:
+                x = x.permute(0, 2, 1)
+        # If PyG Batch object, skip
+    return x
 
-    args = Args()
+def main(args):
     set_random_seed(args.seed)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    s = print_args(args, [])
     print_environ()
-    print(s)
-    print(f"[INFO] Using GNN Encoder: {args.model_type}")
+    print(print_args(args, []))
+    args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {args.device}")
+    os.makedirs(args.output, exist_ok=True)
 
-    if args.latent_domain_num < 6:
-        args.batch_size = 32 * args.latent_domain_num
-    else:
-        args.batch_size = 16 * args.latent_domain_num
+    # Load data loaders
+    train_loader, train_ns_loader, val_loader, test_loader, _, _, _ = get_act_dataloader(args)
 
-    train_loader, train_loader_noshuffle, valid_loader, target_loader, tr_subset, val_subset, target_subset = get_act_dataloader(args)
+    # Initialize Diversify algorithm
+    AlgoClass = alg.get_algorithm_class(args.algorithm)
+    algorithm = AlgoClass(args).to(args.device)
 
-    model = TemporalGCN(
-        input_dim=tr_subset[0].x.size(1),
-        hidden_dim=64,
-        output_dim=args.num_classes
-    ).to(device)
+    # GNN integration
+    if args.use_gnn:
+        print("Initializing GNN feature extractor...")
+        graph_builder = GraphBuilder(
+            method='correlation', threshold_type='adaptive',
+            default_threshold=0.3, adaptive_factor=1.5
+        )
+        gnn = TemporalGCN(
+            input_dim=8,
+            hidden_dim=args.gnn_hidden_dim,
+            output_dim=args.gnn_output_dim,
+            graph_builder=graph_builder
+        ).to(args.device)
+        algorithm.featurizer = gnn
 
-    optimizer = Adam(model.parameters(), lr=1e-3)
-    criterion = nn.CrossEntropyLoss()
-    best_valid_acc, best_target_acc = 0.0, 0.0
+        def make_bottleneck(in_dim, out_dim, layers):
+            try:
+                num = int(layers)
+                modules = []
+                for _ in range(num - 1):
+                    modules += [nn.Linear(in_dim, in_dim), nn.ReLU()]
+                modules.append(nn.Linear(in_dim, out_dim))
+                return nn.Sequential(*modules)
+            except Exception:
+                return nn.Linear(in_dim, out_dim)
 
-    history = {
-        "train_acc": [], "valid_acc": [], "target_acc": [],
-        "class_loss": [], "dis_loss": [],
-        "f1": [], "precision": [], "recall": []
-    }
+        in_dim, out_dim = args.gnn_output_dim, int(args.bottleneck)
+        algorithm.bottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
+        algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
+        algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(args.device)
 
-    for epoch in range(args.max_epoch):
-        model.train()
-        epoch_loss = 0.0
-        num_batches = 0
-        for batch in train_loader:
-            batch = batch.to(device)
-            optimizer.zero_grad()
-            output = model(batch)
-            loss = criterion(output, batch.y)
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-            num_batches += 1
-        print(f"[Epoch {epoch}] Train Loss: {epoch_loss / num_batches:.4f}")
+    algorithm.train()
 
-        train_acc, _, _, _ = evaluate(model, train_loader_noshuffle, device)
-        valid_acc, _, _, _ = evaluate(model, valid_loader, device)
-        target_acc, f1, precision, recall = evaluate(model, target_loader, device)
+    optimizer = optim.AdamW(
+        algorithm.parameters(), lr=args.lr, weight_decay=getattr(args, 'weight_decay', 0)
+    )
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epoch)
 
-        print(f"Train Acc: {train_acc:.3f} | Valid Acc: {valid_acc:.3f} | Target Acc: {target_acc:.3f}")
+    if getattr(args, 'domain_adv_weight', 0) > 0:
+        algorithm.domain_adv_loss = DomainAdversarialLoss(int(args.bottleneck)).to(args.device)
 
-        history["train_acc"].append(train_acc)
-        history["valid_acc"].append(valid_acc)
-        history["target_acc"].append(target_acc)
-        history["f1"].append(f1)
-        history["precision"].append(precision)
-        history["recall"].append(recall)
+    logs = {k: [] for k in ['train_acc', 'val_acc', 'test_acc', 'class_loss', 'dis_loss', 'ent_loss', 'total_loss']}
+    best_val = 0.0
 
-        if valid_acc > best_valid_acc:
-            best_valid_acc = valid_acc
-            best_target_acc = target_acc
+    for epoch in range(1, args.max_epoch + 1):
+        start_time = time.time()
+        # 1) Feature update
+        for x, y, d in train_loader:
+            if args.use_gnn:
+                x = x.to(args.device)
+                x = fix_emg_shape(x)
+            else:
+                x = x.to(args.device).float()
+            y = y.to(args.device)
+            d = d.to(args.device)
+            res = algorithm.update_a([x, y, d], optimizer)
+            logs['class_loss'].append(res['class'])
+        # 2) Latent domain characterization
+        for x, y, d in train_loader:
+            if args.use_gnn:
+                x = x.to(args.device)
+                x = fix_emg_shape(x)
+            else:
+                x = x.to(args.device).float()
+            y = y.to(args.device)
+            d = d.to(args.device)
+            res = algorithm.update_d([x, y, d], optimizer)
+            logs['dis_loss'].append(res['dis'])
+            logs['ent_loss'].append(res['ent'])
+            logs['total_loss'].append(res['total'])
+        # 3) Domain-invariant feature learning
+        for x, y, d in train_loader:
+            if args.use_gnn:
+                x = x.to(args.device)
+                x = fix_emg_shape(x)
+            else:
+                x = x.to(args.device).float()
+            y = y.to(args.device)
+            d = d.to(args.device)
+            _ = algorithm.update([x, y, d], optimizer)
 
-    print(f"Best Target Acc at Best Valid Acc: {best_target_acc:.4f}")
+        # Evaluation
+        acc_fn = modelopera.accuracy
+        logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, None))
+        logs['val_acc'].append(acc_fn(algorithm, val_loader, None))
+        logs['test_acc'].append(acc_fn(algorithm, test_loader, None))
+        scheduler.step()
 
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with open(output_dir / "training_history.pkl", "wb") as f:
-        pickle.dump(history, f)
+        if logs['val_acc'][-1] > best_val:
+            best_val = logs['val_acc'][-1]
+            torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
+
+        print(f"Epoch {epoch}/{args.max_epoch} — Train: {logs['train_acc'][-1]:.4f}, Val: {logs['val_acc'][-1]:.4f}, Time: {time.time()-start_time:.1f}s")
+
+    print(f"Training complete. Best validation accuracy: {best_val:.4f}")
 
 if __name__ == '__main__':
-    main()
+    args = get_args()
+    if not hasattr(args, 'use_gnn'):
+        args.use_gnn = False
+    if args.use_gnn:
+        args.gnn_hidden_dim = getattr(args, 'gnn_hidden_dim', 64)
+        args.gnn_output_dim = getattr(args, 'gnn_output_dim', 256)
+    if not hasattr(args, 'latent_domain_num') or args.latent_domain_num is None:
+        args.latent_domain_num = 4
+    main(args)
