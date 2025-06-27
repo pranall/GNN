@@ -12,9 +12,7 @@ from loss.common_loss import Entropylogits
 from network import Adver_network, common_network
 from sklearn.cluster import KMeans
 
-
 # Utility: move tensors or Data objects to device
-
 def to_device(batch, device):
     if hasattr(batch, 'to') and not isinstance(batch, torch.Tensor):
         return batch.to(device)
@@ -24,12 +22,10 @@ def to_device(batch, device):
         raise ValueError(f"Unknown batch type: {type(batch)}")
 
 # Reshape raw EMG tensors for GNN: output [B, C=8, T=200]
-
 def transform_for_gnn(x):
     # If it's already a PyG Data or Batch, leave it alone
     if isinstance(x, (Data, Batch)):
         return x
-
     # otherwise assume it's a raw tensor [B, C, 1, T] or [B, T, C] etc
     if x.dim() == 4 and x.size(2) == 1:
         x = x.squeeze(2)
@@ -41,7 +37,6 @@ def transform_for_gnn(x):
     elif T > 200:
         x = x[:, :, :200]
     return x
-
 
 class Diversify(Algorithm):
     def __init__(self, args):
@@ -66,15 +61,20 @@ class Diversify(Algorithm):
 
     def patch_skip_connection(self):
         device = next(self.featurizer.parameters()).device
-        sample = torch.randn(1, *self.args.input_shape).to(device)
+        sample = torch.randn(*self.args.input_shape).to(device)
         with torch.no_grad():
-            x = sample
-            if x.dim() == 4 and x.size(2) == 1:
-                x = x.squeeze(2)
-            T = x.size(-1)
-            idx = torch.arange(T, device=device)
-            dummy_e = torch.stack([idx, idx], dim=0)
-            actual = self.featurizer(x, dummy_e).shape[-1]
+            if getattr(self.args, "use_gnn", False):
+                # Create dummy PyG Data for GNN featurizer
+                num_nodes = self.args.input_shape[0]
+                node_features = sample.view(num_nodes, -1)[:num_nodes]  # [8, 200] or [8, 200*1]
+                dummy_edge_index = torch.zeros(2, 0, dtype=torch.long, device=sample.device)
+                dummy_data = Data(x=node_features, edge_index=dummy_edge_index)
+                actual = self.featurizer(dummy_data).shape[-1]
+            else:
+                x = sample.unsqueeze(0)  # [1, 8, 1, 200]
+                if x.dim() == 4 and x.size(2) == 1:
+                    x = x.squeeze(2)
+                actual = self.featurizer(x).shape[-1]
             print(f"Detected actual feature dimension: {actual}")
         for name, m in self.featurizer.named_modules():
             if isinstance(m, nn.Linear) and 'skip' in name.lower():
@@ -95,7 +95,6 @@ class Diversify(Algorithm):
         # If it's a PyG Data/Batch, we assume it already has the right shape
         if isinstance(x, (Data, Batch)):
             return x
-
         # Otherwise force it into [B, 8, 1, 200]
         if x.dim() == 3:
             return x.unsqueeze(2)   # [B,8,200] -> [B,8,1,200]
@@ -106,7 +105,6 @@ class Diversify(Algorithm):
             return x
         else:
             raise ValueError(f"Unsupported x.dim(): {x.dim()}")
-
 
     def update_d(self, batch, opt):
         x, c, d = batch
@@ -142,7 +140,6 @@ class Diversify(Algorithm):
         print(f"Pseudo-domain labels set: {labels}")
         self.featurizer.train()
 
-
     def update(self, batch, opt):
         x, y = batch
         x = to_device(x, next(self.parameters()).device)
@@ -157,7 +154,6 @@ class Diversify(Algorithm):
         raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
         y = y.to(device).long()
         d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
-
         x = to_device(raw_x, device)  # Loader already gives you PyG Batch or Data
         features = self.featurizer(x) # Pass directly to model
 
