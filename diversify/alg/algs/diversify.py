@@ -228,9 +228,9 @@ class Diversify(Algorithm):
         self.featurizer.train()
 
     def ensure_correct_dimensions(self, x):
-    """
-    Ensure input x has shape [batch_size, 8, 1, 200] for 1D CNN.
-    """
+        """
+        Ensure input x has shape [batch_size, 8, 1, 200] for 1D CNN.
+        """
         if x.dim() == 3:  # [B, 8, 200] or [B, 200, 8]
             if x.shape[1] == 8 and x.shape[2] == 200:
                 x = x.unsqueeze(2)  # -> [B, 8, 1, 200]
@@ -245,8 +245,8 @@ class Diversify(Algorithm):
                 raise ValueError(f"Unexpected 4D shape for input: {x.shape}")
         else:
             raise ValueError(f"Unsupported input shape: {x.shape}")
+        print(f"x shape: {x.shape}")
         return x
-
 
     def update(self, data, opt):
         device = next(self.parameters()).device
