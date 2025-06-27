@@ -64,12 +64,13 @@ class Diversify(Algorithm):
         sample = torch.randn(*self.args.input_shape).to(device)
         with torch.no_grad():
             if getattr(self.args, "use_gnn", False):
-                # Create dummy PyG Data for GNN featurizer
-                num_nodes = self.args.input_shape[0]
-                node_features = sample.view(num_nodes, -1)[:num_nodes]  # [8, 200] or [8, 200*1]
+                num_nodes = self.args.input_shape[0]       # 8
+                node_features = sample.view(num_nodes, -1)[:num_nodes]  # [8, 200]
                 dummy_edge_index = torch.zeros(2, 0, dtype=torch.long, device=sample.device)
                 dummy_data = Data(x=node_features, edge_index=dummy_edge_index)
                 actual = self.featurizer(dummy_data).shape[-1]
+                print(f"Detected actual feature dimension: {actual}")
+
             else:
                 x = sample.unsqueeze(0)  # [1, 8, 1, 200]
                 if x.dim() == 4 and x.size(2) == 1:
