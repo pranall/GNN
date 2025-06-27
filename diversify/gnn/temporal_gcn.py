@@ -53,17 +53,17 @@ class TemporalGCN(nn.Module):
             edges.append([i+1, i])
         return torch.tensor(edges, dtype=torch.long).t().contiguous()
 
-        def forward(self, x):
-        # Extract actual tensor if PyG Data object
-            if hasattr(x, 'x'):
-                x = x.x
+    def forward(self, x):
+    # Extract actual tensor if PyG Data object
+        if hasattr(x, 'x'):
+            x = x.x
 
-            original_shape = x.shape
+        original_shape = x.shape
 
-            if x.dim() == 2:
-                x = x.unsqueeze(1)
-            elif x.dim() == 4:
-                x = x.squeeze(2)
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+        elif x.dim() == 4:
+            x = x.squeeze(2)
         
         # Now x should be 3D: [batch, channels, timesteps]
         # Convert to [batch, channels, timesteps] for Conv1d
