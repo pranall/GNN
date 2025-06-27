@@ -122,6 +122,8 @@ def main(args):
                 x = x.to(args.device)  # PyG Batch — leave structure intact
             y = y.to(args.device)
             d = d.to(args.device)
+            print("EMG batch shape before update_a:", x.shape)
+            print("First sample tensor x[0]:", x[0])
             res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
 
