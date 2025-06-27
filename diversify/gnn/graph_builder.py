@@ -4,6 +4,7 @@ import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from typing import Tuple, Union, List, Optional
 import itertools
+from torch_geometric.nn import GCNConv
 
 class GraphBuilder:
     """
