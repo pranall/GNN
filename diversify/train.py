@@ -54,6 +54,7 @@ def main(args):
     print(f"Using device: {args.device}")
     os.makedirs(args.output, exist_ok=True)
 
+    args.steps_per_epoch = min(100, args.batch_size * 10)
     # Load data loaders
     train_loader, train_ns_loader, val_loader, test_loader, _, _, _ = get_act_dataloader(args)
 
