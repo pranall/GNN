@@ -6,30 +6,33 @@ import torch.nn.functional as F
 from collections import Counter
 import numpy as np
 from torch.utils.data import Subset
+from sklearn.cluster import KMeans
 
 from alg.modelopera import get_fea
 from alg.algs.base import Algorithm
 from loss.common_loss import Entropylogits
 from network import Adver_network, common_network
-from sklearn.cluster import KMeans
 
+# Utility: move tensors to device
 
-# Utility: move tensors or Data objects to device
 def to_device(batch, device):
-    if hasattr(batch, 'to') and not isinstance(batch, torch.Tensor):
-        return batch.to(device)
-    elif isinstance(batch, torch.Tensor):
+    if isinstance(batch, torch.Tensor):
         return batch.to(device).float()
+    elif hasattr(batch, 'to'):
+        return batch.to(device)
     else:
         raise ValueError(f"Unknown batch type: {type(batch)}")
 
 # Reshape raw EMG tensors for GNN: output [B, C=8, T=200]
 def transform_for_gnn(x):
+    # only handle torch.Tensor
+    if not isinstance(x, torch.Tensor):
+        return x
     # collapse extra dims [B, C, 1, T] -> [B, C, T]
     if x.dim() == 4 and x.size(2) == 1:
         x = x.squeeze(2)
     # swap [B, T, C] -> [B, C, T]
-    if x.dim() == 3 and x.size(1) != 8:
+    if x.dim() == 3 and x.size(1) not in {8, 200}:
         x = x.permute(0, 2, 1)
     # pad or truncate time to 200
     B, C, T = x.shape
@@ -45,7 +48,7 @@ class Diversify(Algorithm):
         super().__init__(args)
         self.args = args
         self.featurizer = get_fea(args)
-        # discriminators & bottlenecks & classifiers
+        # components
         self.dbottleneck = common_network.feat_bottleneck(
             self.featurizer.in_features, args.bottleneck, args.layer)
         self.ddiscriminator = Adver_network.Discriminator(
@@ -73,14 +76,13 @@ class Diversify(Algorithm):
         device = next(self.featurizer.parameters()).device
         sample = torch.randn(1, *self.args.input_shape).to(device)
         with torch.no_grad():
-            x = sample
-            if x.dim() == 4 and x.size(2) == 1:
-                x = x.squeeze(2)
+            x = sample.squeeze(2) if sample.dim() == 4 and sample.size(2) == 1 else sample
             T = x.size(-1)
             idx = torch.arange(T, device=device)
             dummy_e = torch.stack([idx, idx], dim=0)
             actual = self.featurizer(x, dummy_e).shape[-1]
             print(f"Detected actual feature dimension: {actual}")
+        # patch skip-connection linear if mismatch
         for name, m in self.featurizer.named_modules():
             if isinstance(m, nn.Linear) and 'skip' in name.lower():
                 if m.in_features != actual:
@@ -97,7 +99,7 @@ class Diversify(Algorithm):
                 break
 
     def ensure_correct_dimensions(self, x):
-        # from [B,8,200] or [B,200,8] to [B,8,1,200]
+        # ensure [B,8,1,200]
         if x.dim() == 3:
             if x.shape[1] == self.args.input_shape[0] and x.shape[2] == self.args.input_shape[-1]:
                 x = x.unsqueeze(2)
@@ -120,8 +122,9 @@ class Diversify(Algorithm):
         d_in = Adver_network.ReverseLayerF.apply(z, self.args.alpha1)
         d_out = self.ddiscriminator(d_in)
         c_out = self.dclassifier(z)
-        loss = (F.cross_entropy(d_out, d) * self.lambda_dis +
-                (Entropylogits(c_out) * self.args.lam + self.criterion(c_out, c)))
+        loss = F.cross_entropy(d_out, d) * self.lambda_dis + (
+            Entropylogits(c_out) * self.args.lam + self.criterion(c_out, c)
+        )
         opt.zero_grad(); loss.backward(); opt.step()
         return {'total': loss.item()}
 
@@ -133,8 +136,7 @@ class Diversify(Algorithm):
         with torch.no_grad():
             for batch in loader:
                 x = to_device(batch[0], device)
-                if self.args.use_gnn:
-                    x = transform_for_gnn(x)
+                x = transform_for_gnn(x)
                 x = self.ensure_correct_dimensions(x)
                 f = self.dbottleneck(self.featurizer(x)).cpu()
                 feats.append(f)
@@ -160,34 +162,24 @@ class Diversify(Algorithm):
         raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
         y = y.to(device).long()
         d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
-
-        # combine class+domain into one label
         maxc = self.aclassifier.fc.out_features
         yc = (d * self.args.num_classes + y).clamp(0, maxc - 1)
-
+        # GNN path (raw tensor)
         if self.args.use_gnn:
-            # ALWAYS treat as raw tensor for GNN path
-            x = to_device(raw_x, device)               # [B,1,200] or [B,8,200], etc.
-            x = transform_for_gnn(x)                   # → [B,8,200]
-            x = self.ensure_correct_dimensions(x)      # → [B,8,1,200]
+            x = to_device(raw_x, device)
+            x = transform_for_gnn(x)
+            x = self.ensure_correct_dimensions(x)
             print("🔥 GNN Tensor branch, input shape:", x.shape)
-            feat = self.featurizer(x)                  # TemporalGCN expects tensor + auto-builder
+            feat = self.featurizer(x)
         else:
-            # fallback CNN path
             x = to_device(raw_x, device)
             x = self.ensure_correct_dimensions(x)
             feat = self.featurizer(x)
-
-        # bottleneck + classifier
         z = self.abottleneck(feat)
         pred = self.aclassifier(z)
-
-        # align time‐step dimension back to batch
         if pred.size(0) != yc.size(0):
-            B = yc.size(0)
-            T = pred.size(0) // B
-            pred = pred.view(B, T, -1).mean(dim=1)
-
+            B = yc.size(0); T = pred.size(0) // B
+            pred = pred.view(B, T, -1).mean(1)
         loss = F.cross_entropy(pred, yc)
         opt.zero_grad(); loss.backward(); opt.step()
         return {'class': loss.item()}
