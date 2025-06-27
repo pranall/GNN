@@ -71,31 +71,43 @@ class SafeSubset(Subset):
                 return data
 
 def collate_gnn(batch):
-    xs, ys, ds = [], [], []
-    for sample in batch:
-        if isinstance(sample, tuple):
+    # Accepts: each sample is (Data, label, domain) or just Data (with y, domain attributes)
+    # Or, possibly (tensor, label, domain) in rare legacy cases
+
+    # If first element is a PyG Data, assume all are
+    if isinstance(batch[0], Data):
+        # All are Data objects, possibly with y/domain
+        return Batch.from_data_list(batch)
+    elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
+        # All are (Data, y, d) tuples
+        datas, ys, ds = [], [], []
+        for sample in batch:
+            data, y, d = sample
+            # Patch attributes in
+            data.y = torch.tensor(y, dtype=torch.long) if not hasattr(data, "y") else data.y
+            data.domain = torch.tensor(d, dtype=torch.long) if not hasattr(data, "domain") else data.domain
+            datas.append(data)
+            ys.append(y)
+            ds.append(d)
+        batched = Batch.from_data_list(datas)
+        ys = torch.tensor(ys, dtype=torch.long)
+        ds = torch.tensor(ds, dtype=torch.long)
+        return batched, ys, ds
+    elif isinstance(batch[0], tuple) and isinstance(batch[0][0], torch.Tensor):
+        # All are (tensor, y, d)
+        xs, ys, ds = [], [], []
+        for sample in batch:
             x, y, d = sample[:3]
-        else:
-            raise ValueError("Expected tuple as sample in batch")
-        # --- force x into [8,1,200] ---
-        if isinstance(x, torch.Tensor):
-            if x.dim() == 2 and x.shape == (8, 200):
-                x = x.unsqueeze(1)  # [8,200] → [8,1,200]
-            elif x.dim() == 3 and x.shape == (8, 1, 200):
-                pass
-            elif x.dim() == 3 and x.shape[1:] == (1, 200):
-                pass
-            else:
-                raise ValueError(f"Unrecognized tensor shape: {x.shape}")
-        else:
-            raise ValueError("Input x is not a tensor")
-        xs.append(x)
-        ys.append(y)
-        ds.append(d)
-    x_batch = torch.stack(xs, dim=0)  # [B,8,1,200]
-    y_batch = torch.tensor(ys, dtype=torch.long)
-    d_batch = torch.tensor(ds, dtype=torch.long)
-    return x_batch, y_batch, d_batch
+            xs.append(x)
+            ys.append(y)
+            ds.append(d)
+        x_batch = torch.stack(xs, dim=0)
+        y_batch = torch.tensor(ys, dtype=torch.long)
+        d_batch = torch.tensor(ds, dtype=torch.long)
+        return x_batch, y_batch, d_batch
+    else:
+        raise ValueError("Unsupported batch format for collate_gnn")
+
 
 
 def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
