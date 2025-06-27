@@ -71,49 +71,32 @@ class SafeSubset(Subset):
                 return data
 
 def collate_gnn(batch):
-    graphs, labels, domains = [], [], []
-    
+    xs, ys, ds = [], [], []
     for sample in batch:
         if isinstance(sample, tuple):
-            g = sample[0]
-            y = sample[1]
-            d = sample[2] if len(sample) > 2 else 0
-        elif isinstance(sample, Data):
-            g = sample
-            y = getattr(g, "y", 0)
-            d = getattr(g, "domain", 0)
-        elif isinstance(sample, dict) and 'graph' in sample:
-            g = sample['graph']
-            y = sample.get('label', 0)
-            d = sample.get('domain', 0)
+            x, y, d = sample[:3]
         else:
-            if isinstance(sample, (tuple, list)):
-                g = sample[0]
-                y = sample[1] if len(sample) > 1 else 0
-                d = sample[2] if len(sample) > 2 else 0
+            raise ValueError("Expected tuple as sample in batch")
+        # --- force x into [8,1,200] ---
+        if isinstance(x, torch.Tensor):
+            if x.dim() == 2 and x.shape == (8, 200):
+                x = x.unsqueeze(1)  # [8,200] → [8,1,200]
+            elif x.dim() == 3 and x.shape == (8, 1, 200):
+                pass
+            elif x.dim() == 3 and x.shape[1:] == (1, 200):
+                pass
             else:
-                g = sample
-                y = d = 0
+                raise ValueError(f"Unrecognized tensor shape: {x.shape}")
+        else:
+            raise ValueError("Input x is not a tensor")
+        xs.append(x)
+        ys.append(y)
+        ds.append(d)
+    x_batch = torch.stack(xs, dim=0)  # [B,8,1,200]
+    y_batch = torch.tensor(ys, dtype=torch.long)
+    d_batch = torch.tensor(ds, dtype=torch.long)
+    return x_batch, y_batch, d_batch
 
-        if isinstance(g, torch.Tensor):
-            if g.ndim == 3 and g.shape[1] == 1:
-                g = g.squeeze(1)  # [8, 1, 200] → [8, 200]
-            if g.ndim == 2 and g.shape[0] == 8:
-                g = g.unsqueeze(0)  # [8, 200] → [1, 8, 200]
-            elif g.ndim == 2 and g.shape[1] == 8:
-                g = g.permute(1, 0).unsqueeze(0)  # just in case it's [200, 8]
-                
-        graphs.append(g)
-        labels.append(y)
-        domains.append(d)
-
-    # Stack final batch tensor
-    if isinstance(graphs[0], torch.Tensor):
-        x = torch.cat(graphs, dim=0)  # [B, 8, 200]
-        return x, torch.tensor(labels, dtype=torch.long), torch.tensor(domains, dtype=torch.long)
-    else:
-        batched_graph = Batch.from_data_list(graphs)
-        return batched_graph, torch.tensor(labels, dtype=torch.long), torch.tensor(domains, dtype=torch.long)
 
 def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
     return DataLoader(dataset=dataset, batch_size=batch_size,
