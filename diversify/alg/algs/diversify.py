@@ -161,15 +161,14 @@ class Diversify(Algorithm):
         yc = (d * self.args.num_classes + y).clamp(0, maxc - 1)
 
         # GNN path vs CNN path
+            # ── NEW ──
         if self.args.use_gnn:
-            if hasattr(raw_x, 'x'):
-                data = to_device(raw_x, device)
-                feat = self.featurizer(data)
-            else:
-                x = to_device(raw_x, device)
-                x = transform_for_gnn(x)
-                x = self.ensure_correct_dimensions(x)
-                feat = self.featurizer(x)
+            # always treat raw_x as a tensor, never a DataBatch
+            x = to_device(raw_x, device)              # [B,1,200] or [B,8,200]
+            x = transform_for_gnn(x)                  # → [B,8,200]
+            x = self.ensure_correct_dimensions(x)     # → [B,8,1,200]
+            feat = self.featurizer(x)                 # TemporalGCN(x, edge_index=None)
+
         else:
             x = to_device(raw_x, device)
             x = self.ensure_correct_dimensions(x)
