@@ -104,8 +104,21 @@ class Diversify(Algorithm):
         device = next(self.featurizer.parameters()).device
         sample_input = torch.randn(1, *self.args.input_shape).to(device)
         with torch.no_grad():
-            actual_features = self.featurizer(sample_input).shape[-1]
+            # 1) If x comes in as [1, C, 1, T], squeeze to [1, C, T]
+            x = sample_input
+            if x.dim() == 4 and x.size(2) == 1:
+                x = x.squeeze(2)
+
+            # 2) Build a trivial self-loop graph on T “time‐nodes”
+            T = x.size(-1)
+            idx = torch.arange(T, device=device)
+            dummy_edge_index = torch.stack([idx, idx], dim=0)  # shape [2, T]
+
+            # 3) Probe your GNN’s output dim by passing the squeezed x
+            actual_features = self.featurizer(x, dummy_edge_index).shape[-1]
             print(f"Detected actual feature dimension: {actual_features}")
+
+
         for name, module in self.featurizer.named_modules():
             if isinstance(module, nn.Linear) and "skip" in name.lower():
                 if module.in_features != actual_features:
