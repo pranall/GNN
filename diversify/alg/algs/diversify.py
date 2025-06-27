@@ -11,6 +11,8 @@ from alg.modelopera import get_fea
 from alg.algs.base import Algorithm
 from loss.common_loss import Entropylogits
 from network import Adver_network, common_network
+from sklearn.cluster import KMeans
+
 
 # Utility: move tensors or Data objects to device
 def to_device(batch, device):
@@ -158,23 +160,34 @@ class Diversify(Algorithm):
         raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
         y = y.to(device).long()
         d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
+
+        # combine class+domain into one label
         maxc = self.aclassifier.fc.out_features
         yc = (d * self.args.num_classes + y).clamp(0, maxc - 1)
+
         if self.args.use_gnn:
-            x = to_device(raw_x, device)
-            x = transform_for_gnn(x)
-            x = self.ensure_correct_dimensions(x)
-            print("✅ GNN branch, input shape:", x.shape)
-            feat = self.featurizer(x)
+            # ALWAYS treat as raw tensor for GNN path
+            x = to_device(raw_x, device)               # [B,1,200] or [B,8,200], etc.
+            x = transform_for_gnn(x)                   # → [B,8,200]
+            x = self.ensure_correct_dimensions(x)      # → [B,8,1,200]
+            print("🔥 GNN Tensor branch, input shape:", x.shape)
+            feat = self.featurizer(x)                  # TemporalGCN expects tensor + auto-builder
         else:
+            # fallback CNN path
             x = to_device(raw_x, device)
             x = self.ensure_correct_dimensions(x)
             feat = self.featurizer(x)
+
+        # bottleneck + classifier
         z = self.abottleneck(feat)
         pred = self.aclassifier(z)
+
+        # align time‐step dimension back to batch
         if pred.size(0) != yc.size(0):
-            B = yc.size(0); T = pred.size(0)//B
-            pred = pred.view(B, T, -1).mean(1)
+            B = yc.size(0)
+            T = pred.size(0) // B
+            pred = pred.view(B, T, -1).mean(dim=1)
+
         loss = F.cross_entropy(pred, yc)
         opt.zero_grad(); loss.backward(); opt.step()
         return {'class': loss.item()}
