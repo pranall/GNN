@@ -110,11 +110,7 @@ def main(args):
         start_time = time.time()
         # 1) Feature update
         for x, y, d in train_loader:
-            if args.use_gnn:
-                x = x.to(args.device)
-                x = fix_emg_shape(x)
-            else:
-                x = x.to(args.device).float()
+            x = algorithm.ensure_correct_dimensions(x.to(args.device))
             y = y.to(args.device)
             d = d.to(args.device)
             res = algorithm.update_a(x, y, d, optimizer)  # temporarily duplicate for testing
