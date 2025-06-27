@@ -156,17 +156,19 @@ def get_act_dataloader(args):
         transform = actutil.act_to_graph_transform(args) if getattr(args, 'use_gnn', False) else actutil.act_train()
         tdata = task.ActList(args, args.dataset, args.data_dir, tmpp, i, transform=transform)
         
+        # — Debug: inspect the *raw* dataset sample before batching —
         if i == 0 and getattr(args, 'use_gnn', False):
-            try:
-                sample_check = tdata[0]
-                if hasattr(sample_check, 'x'):
-                    print("✅ Shape going into GNN featurizer:", sample_check.x.shape)
-                elif isinstance(sample_check, tuple) and hasattr(sample_check[0], 'x'):
-                    print("✅ Shape going into GNN featurizer:", sample_check[0].x.shape)
-                else:
-                    print("⚠️ Could not detect .x in sample for debug shape check.")
-            except Exception as e:
-                print(f"❌ Failed to check sample shape: {e}")
+            sample = tdata[0]
+            print("🔎 RAW SAMPLE TYPE:", type(sample))
+            if hasattr(sample, 'x'):
+                print("  sample.x.shape     :", sample.x.shape)
+                print("  sample.edge_index  :", sample.edge_index.shape)
+            elif isinstance(sample, tuple):
+                shapes = [e.shape if isinstance(e, torch.Tensor) else type(e) for e in sample]
+                print("  sample tuple shapes:", shapes)
+            else:
+                print("  sample is:", sample)
+        # — end debug —
 
         if i in args.test_envs:
             target_datalist.append(tdata)
