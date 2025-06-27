@@ -116,6 +116,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='Domain Generalization for Activity Recognition')
     
     # Algorithm parameters
+    parser.add_argument('--model_type', type=str, default='cnn', choices=['cnn', 'gnn'], help='Model type to use')
     parser.add_argument('--algorithm', type=str, default="diversify", 
                         help="Algorithm to use")
     parser.add_argument('--alpha', type=float, default=0.1, 
