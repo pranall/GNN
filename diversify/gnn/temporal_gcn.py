@@ -32,42 +32,49 @@ class TemporalGCN(nn.Module):
         self.classifier = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x, edge_index=None, batch=None):
-        # --- allow PyG Data in place of (x, edge_index, batch) ---
+        # --- allow PyG Data object as input ---
         if isinstance(x, Data):
             data = x
             x, edge_index, batch = data.x, data.edge_index, getattr(data, 'batch', None)
 
-        # --- now x is a Tensor, edge_index is a LongTensor [2, E] ---
-        # if x came in as [B, C, 1, T], squeeze to [B, C, T]
-        if x.dim() == 4 and x.size(2) == 1:
-            x = x.squeeze(2)
+        # --- normalize raw Tensor shapes ---
+        if isinstance(x, torch.Tensor):
+            # collapse [B, C, 1, T] -> [B, C, T]
+            if x.dim() == 4 and x.size(2) == 1:
+                x = x.squeeze(2)
+            # permute [B, T, C] -> [B, C, T] if channels mismatch
+            if x.dim() == 3 and x.size(1) != self.input_dim:
+                x = x.permute(0, 2, 1)
 
-        # Temporal conv expects [B, C, T]
-        B, C, T = x.shape  
-        x_temp = self.temporal_conv(x)          # → [B, 32, T//4]
+        # now expect [B, C, T]
+        B, C, T = x.shape
+
+        # temporal convolution -> [B, 32, T//4]
+        x_temp = self.temporal_conv(x)
         _, feat_dim, new_T = x_temp.shape
 
-        # flatten for graph conv: treat each time step as a node
+        # flatten for graph conv: treat each time step as node
         x_temp = x_temp.permute(0, 2, 1).reshape(-1, feat_dim)  # [B*new_T, feat_dim]
 
-        # If no edge_index was provided, build one via graph_builder
+        # if no edge_index, build via graph_builder
         if edge_index is None:
-            # assume graph_builder returns a Data or edge_index for a single example:
+            if self.graph_builder is None:
+                raise ValueError("No edge_index or graph_builder provided to TemporalGCN.forward")
             gb_data = self.graph_builder(x_temp.view(B, new_T, feat_dim).cpu().numpy())
             edge_index = gb_data.edge_index.to(x_temp.device)
 
-        # two-layer GCN
+        # graph convolutions
         h = F.relu(self.gcn1(x_temp, edge_index))
         h = F.relu(self.gcn2(h, edge_index))
 
-        # pool back to graph level
+        # pool back to graph-level
         if batch is not None:
-            h = global_mean_pool(h, batch)      # [B, hidden_dim]
+            h = global_mean_pool(h, batch)  # [B, hidden_dim]
         else:
-            h = h.view(B, new_T, self.hidden_dim).mean(1)
+            h = h.view(B, new_T, self.hidden_dim).mean(dim=1)
 
-        return self.classifier(h)               # [B, output_dim]
-
+        # classifier
+        return self.classifier(h)
 
     def reconstruct(self, features):
         """Reconstruct mean input features for pretraining"""
