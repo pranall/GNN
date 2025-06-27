@@ -139,6 +139,19 @@ def get_act_dataloader(args):
     for i, person in enumerate(tmpp):
         transform = actutil.act_to_graph_transform(args) if getattr(args, 'use_gnn', False) else actutil.act_train()
         tdata = task.ActList(args, args.dataset, args.data_dir, tmpp, i, transform=transform)
+        
+        if i == 0 and getattr(args, 'use_gnn', False):
+            try:
+                sample_check = tdata[0]
+                if hasattr(sample_check, 'x'):
+                    print("✅ Shape going into GNN featurizer:", sample_check.x.shape)
+                elif isinstance(sample_check, tuple) and hasattr(sample_check[0], 'x'):
+                    print("✅ Shape going into GNN featurizer:", sample_check[0].x.shape)
+                else:
+                    print("⚠️ Could not detect .x in sample for debug shape check.")
+            except Exception as e:
+                print(f"❌ Failed to check sample shape: {e}")
+
         if i in args.test_envs:
             target_datalist.append(tdata)
         else:
