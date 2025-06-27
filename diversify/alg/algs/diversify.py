@@ -282,8 +282,7 @@ class Diversify(Algorithm):
         device = next(self.parameters()).device
         all_x = to_device(minibatches[0], device)
 
-        # ✅ Only reshape if input is a regular Tensor (i.e., for CNNs)
-        if isinstance(all_x, torch.Tensor):
+        if not self.args.use_gnn and isinstance(all_x, torch.Tensor):
             all_x = self.ensure_correct_dimensions(all_x)
 
         all_c = minibatches[1].to(device).long()
@@ -298,12 +297,19 @@ class Diversify(Algorithm):
         max_class = self.aclassifier.fc.out_features
         all_y = torch.clamp(all_y, 0, max_class - 1)
 
-        all_z = self.abottleneck(self.featurizer(all_x))
+        if self.args.use_gnn:
+            # PyG Data input — leave untouched
+            all_z = self.abottleneck(self.featurizer(all_x))
+        else:
+            # CNN Tensor input
+            all_z = self.abottleneck(self.featurizer(all_x))
+
         if self.explain_mode:
             all_z = all_z.clone()
+
         all_preds = self.aclassifier(all_z)
 
-        # ==== BATCH ALIGNMENT for all_preds ====
+        # ==== BATCH ALIGNMENT ====
         if all_preds.shape[0] != all_y.shape[0]:
             batch_size = all_y.shape[0]
             if all_preds.shape[0] % batch_size == 0:
@@ -316,7 +322,9 @@ class Diversify(Algorithm):
         opt.zero_grad()
         classifier_loss.backward()
         opt.step()
+
         return {'class': classifier_loss.item()}
+
 
 
     def predict(self, x):
