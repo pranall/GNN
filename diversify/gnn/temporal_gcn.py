@@ -1,14 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, GATConv
+from torch_geometric.nn import GCNConv
 from gnn.graph_builder import GraphBuilder
-import numpy as np
-from torch_geometric.data import Data
 
-def get_shape(x):
-    return x.x.shape if hasattr(x, 'x') else x.shape
-    
 class TemporalGCN(nn.Module):
     """
     Temporal Graph Convolutional Network for sensor-based activity recognition
@@ -20,9 +15,9 @@ class TemporalGCN(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
-        self.in_features = input_dim  # For compatibility with algorithms
-        self.out_features = output_dim  # For compatibility with algorithms
-        
+        self.in_features = input_dim
+        self.out_features = output_dim
+
         # Temporal feature extractor
         self.temporal_conv = nn.Sequential(
             nn.Conv1d(input_dim, 16, kernel_size=5, padding=2),
@@ -30,110 +25,64 @@ class TemporalGCN(nn.Module):
             nn.MaxPool1d(2),
             nn.Conv1d(16, 32, kernel_size=5, padding=2),
             nn.ReLU(),
-            nn.MaxPool1d(2)
+            nn.MaxPool1d(2),
         )
-        # Spatial graph convolutions
+
+        # Spatial GCN layers
         self.gcn1 = GCNConv(32, hidden_dim)
         self.gcn2 = GCNConv(hidden_dim, hidden_dim)
-        # Classifier
+
+        # Final classifier
         self.fc = nn.Linear(hidden_dim, output_dim)
-        
+
         # Reconstruction layer for pretraining
-        self.recon = nn.Linear(output_dim, input_dim)  # For mean feature reconstruction
-        
-        # Cache for graphs to avoid rebuilding
+        self.recon = nn.Linear(output_dim, input_dim)
+
+        # Cache for edge indices
         self.graph_cache = {}
 
-    def _create_chain_graph(self, num_nodes: int) -> torch.LongTensor:
-        """Create temporal chain graph as fallback"""
-        edges = []
-        for i in range(num_nodes - 1):
-            # Connect consecutive time steps
-            edges.append([i, i+1])
-            edges.append([i+1, i])
-        return torch.tensor(edges, dtype=torch.long).t().contiguous()
-
     def forward(self, x):
-    # Extract actual tensor if PyG Data object
+        # 1) If this is a PyG Batch, unpack its tensor
         if hasattr(x, 'x'):
             x = x.x
 
-        original_shape = x.shape
+        # 2) Fix stray shape [N,1,T] -> [B, C=input_dim, T]
+        if x.dim() == 3 and x.size(1) == 1 and x.size(0) % self.input_dim == 0:
+            B = x.size(0) // self.input_dim
+            x = x.view(B, self.input_dim, x.size(2))
 
-        if x.dim() == 2:
-            x = x.unsqueeze(1)
-        elif x.dim() == 4:
-            x = x.squeeze(2)
-        
-        # Ensure input is [B, C, T]
-        if x.shape[1] == self.input_dim:
-            pass  # already in [B, C, T]
-        elif x.shape[-1] == self.input_dim:
-            x = x.permute(0, 2, 1)  # from [B, T, C] → [B, C, T]
-        else:
-            raise ValueError(f"Expected one dimension to match input_dim={self.input_dim}, but got shape {x.shape}")
+        # 3) Now enforce [B, C, T]
+        B, C, T = x.shape
+        if C != self.input_dim:
+            raise ValueError(f"Expected C={self.input_dim}, got {C}")
 
-        
-        batch_size, channels, timesteps = x.shape
-        print("Input shape to Conv1d:", x.shape)
-        # Temporal convolution: [batch, features, timesteps]
-        x = self.temporal_conv(x)  # Output: [batch, 32, timesteps//4]
-        _, features, reduced_timesteps = x.shape
-        
-        # Prepare for GCN: [batch, features, time] -> [batch, time, features]
-        x = x.permute(0, 2, 1)  # [batch, reduced_timesteps, 32]
-        x_flat = x.reshape(batch_size * reduced_timesteps, -1)
-        
-        # Build or retrieve graph
-        cache_key = f"{reduced_timesteps}"
-        if cache_key in self.graph_cache:
-            edge_index = self.graph_cache[cache_key]
-        else:
-            try:
-                # Use MEAN features across batch for representativeness
-                mean_features = x.mean(dim=0).detach().cpu().numpy()
-                edge_index = self.graph_builder.build_graph(mean_features)
-                
-                # Validate and clamp
-                max_index = reduced_timesteps - 1
-                if torch.any(edge_index > max_index):
-                    print(f"Edge index contains out-of-bounds indices! Clamping to [0, {max_index}]")
-                    edge_index = torch.clamp(edge_index, 0, max_index)
-                
-                self.graph_cache[cache_key] = edge_index
-                print(f"Built new graph with {edge_index.shape[1]} edges for {reduced_timesteps} time steps")
-                
-            except Exception as e:
-                print(f"Graph building failed: {e}, using chain fallback")
-                edge_index = self._create_chain_graph(reduced_timesteps)
-                self.graph_cache[cache_key] = edge_index
-        
-        # Move to device and clone to avoid warnings
-        edge_index = self.graph_cache[cache_key].to(x.device).clone().detach()
-        
-        # Batch the graph with node offsetting
-        edge_indices = []
-        for i in range(batch_size):
-            offset = i * reduced_timesteps
-            edge_index_offset = edge_index + offset
-            edge_indices.append(edge_index_offset)
-        edge_index = torch.cat(edge_indices, dim=1)
-        
-        # Validate final edge indices
-        max_index = batch_size * reduced_timesteps - 1
-        if torch.any(edge_index > max_index):
-            print(f"Final edge index contains out-of-bounds indices! Clamping to [0, {max_index}]")
-            edge_index = torch.clamp(edge_index, 0, max_index)
-        
-        # Graph convolution
-        x = F.relu(self.gcn1(x_flat, edge_index))
+        # 4) Temporal convolutions -> [B, 32, T//4]
+        x = self.temporal_conv(x)
+        _, feat_dim, T4 = x.shape
+
+        # 5) Flatten for GCN: [B, 32, T4] -> [B*T4, 32]
+        x = x.permute(0, 2, 1).reshape(B * T4, feat_dim)
+
+        # 6) Build or fetch edge_index for this T4
+        key = str(T4)
+        if key not in self.graph_cache:
+            # build graph on mean features per time node
+            mean_feat = x.view(B, T4, feat_dim).mean(dim=0).cpu().numpy()
+            raw_ei = self.graph_builder.build_graph(mean_feat)
+            # convert to torch.LongTensor and clamp
+            edge_index = torch.tensor(raw_ei, dtype=torch.long)
+            max_i = T4 - 1
+            edge_index = edge_index.clamp(0, max_i)
+            self.graph_cache[key] = edge_index
+        edge_index = self.graph_cache[key].to(x.device)
+
+        # 7) GCN layers
+        x = F.relu(self.gcn1(x, edge_index))
         x = F.relu(self.gcn2(x, edge_index))
-        
-        # Reshape back: [batch, reduced_timesteps, features]
-        x = x.reshape(batch_size, reduced_timesteps, -1)
-        
-        # Global pooling over time
-        x = torch.mean(x, dim=1)  # [batch, features]
+
+        # 8) Pool back to [B, hidden_dim]
+        x = x.view(B, T4, self.hidden_dim).mean(dim=1)
+
         return self.fc(x)
 
     def reconstruct(self, features):
