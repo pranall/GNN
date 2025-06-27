@@ -74,15 +74,12 @@ class ActList(mydataset):
             tx, tcy, tsy = x[person_idx], cy[person_idx], sy[person_idx]
             
             # Combine data from all positions for this person
-            for j, position_id in enumerate(self.position):
-                position_idx = np.where(tsy == position_id)[0]
-                if j == 0:
-                    ttx, ttcy = tx[position_idx], tcy[position_idx]
-                else:
-                    ttx = np.hstack((ttx, tx[position_idx]))
-                    # Second version adds label stacking here
-                    ttcy = np.hstack((ttcy, tcy[position_idx]))
-            
+            valid_idxs = np.isin(tsy, self.position)
+            if not np.any(valid_idxs):
+                print(f"Skipping person {person_id} due to no valid sensor positions.")
+                continue
+
+            ttx, ttcy = tx[valid_idxs], tcy[valid_idxs]
             # Add to dataset
             if i == 0:
                 self.x, self.labels = ttx, ttcy
