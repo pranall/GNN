@@ -228,19 +228,25 @@ class Diversify(Algorithm):
         self.featurizer.train()
 
     def ensure_correct_dimensions(self, x):
-        if isinstance(x, torch.Tensor):
-            if x.dim() == 4:
-                # Handle shape: [B, C, 1, T] or similar
-                x = x.squeeze(2) if x.size(2) == 1 else x
-                x = x.permute(0, 2, 1) if x.size(1) != 8 else x
-            elif x.dim() == 3:
-                if x.shape[1] == 1 and x.shape[2] == 200:
-                    x = x.repeat(1, 8, 1)
-                elif x.shape[1] == 200 and x.shape[2] == 1:
-                    x = x.repeat(1, 1, 8).permute(0, 2, 1)
-                elif x.shape[1] == 200 and x.shape[2] == 8:
-                    x = x.permute(0, 2, 1)
+    """
+    Ensure input x has shape [batch_size, 8, 1, 200] for 1D CNN.
+    """
+        if x.dim() == 3:  # [B, 8, 200] or [B, 200, 8]
+            if x.shape[1] == 8 and x.shape[2] == 200:
+                x = x.unsqueeze(2)  # -> [B, 8, 1, 200]
+            elif x.shape[1] == 200 and x.shape[2] == 8:
+                x = x.permute(0, 2, 1).unsqueeze(2)  # -> [B, 8, 1, 200]
+            else:
+                raise ValueError(f"Unrecognized 3D shape for input: {x.shape}")
+        elif x.dim() == 4:
+            if x.shape[1:] == (8, 1, 200):
+                pass  # already correct
+            else:
+                raise ValueError(f"Unexpected 4D shape for input: {x.shape}")
+        else:
+            raise ValueError(f"Unsupported input shape: {x.shape}")
         return x
+
 
     def update(self, data, opt):
         device = next(self.parameters()).device
