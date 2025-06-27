@@ -71,19 +71,12 @@ class SafeSubset(Subset):
                 return data
 
 def collate_gnn(batch):
-    # Accepts: each sample is (Data, label, domain) or just Data (with y, domain attributes)
-    # Or, possibly (tensor, label, domain) in rare legacy cases
-
-    # If first element is a PyG Data, assume all are
     if isinstance(batch[0], Data):
-        # All are Data objects, possibly with y/domain
+        # All elements are Data objects
         return Batch.from_data_list(batch)
     elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
-        # All are (Data, y, d) tuples
         datas, ys, ds = [], [], []
-        for sample in batch:
-            data, y, d = sample
-            # Patch attributes in
+        for data, y, d in batch:
             data.y = torch.tensor(y, dtype=torch.long) if not hasattr(data, "y") else data.y
             data.domain = torch.tensor(d, dtype=torch.long) if not hasattr(data, "domain") else data.domain
             datas.append(data)
@@ -93,22 +86,8 @@ def collate_gnn(batch):
         ys = torch.tensor(ys, dtype=torch.long)
         ds = torch.tensor(ds, dtype=torch.long)
         return batched, ys, ds
-    elif isinstance(batch[0], tuple) and isinstance(batch[0][0], torch.Tensor):
-        # All are (tensor, y, d)
-        xs, ys, ds = [], [], []
-        for sample in batch:
-            x, y, d = sample[:3]
-            xs.append(x)
-            ys.append(y)
-            ds.append(d)
-        x_batch = torch.stack(xs, dim=0)
-        y_batch = torch.tensor(ys, dtype=torch.long)
-        d_batch = torch.tensor(ds, dtype=torch.long)
-        return x_batch, y_batch, d_batch
     else:
         raise ValueError("Unsupported batch format for collate_gnn")
-
-
 
 def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
     return DataLoader(dataset=dataset, batch_size=batch_size,
