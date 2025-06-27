@@ -299,7 +299,7 @@ class Diversify(Algorithm):
 
         if self.args.use_gnn:
             # PyG Data input — leave untouched
-            print("🔥 Shape going into featurizer:", all_x.shape)
+            print("🔥 Shape going into featurizer:", all_x.x.shape)
             all_z = self.abottleneck(self.featurizer(all_x))
         else:
             # CNN Tensor input
