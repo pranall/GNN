@@ -116,11 +116,15 @@ def main(args):
         start_time = time.time()
         # 1) Feature update
         for x, y, d in train_loader:
-            x = algorithm.ensure_correct_dimensions(x.to(args.device))
+            if not args.use_gnn:
+                x = algorithm.ensure_correct_dimensions(x.to(args.device))
+            else:
+                x = x.to(args.device)  # PyG Batch — leave structure intact
             y = y.to(args.device)
             d = d.to(args.device)
-            res = algorithm.update_a([x, y, d, y, d], optimizer)  # temporarily duplicate for testing
+            res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
+
         # 2) Latent domain characterization
         for x, y, d in train_loader:
             if args.use_gnn:
