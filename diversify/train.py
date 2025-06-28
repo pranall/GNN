@@ -107,11 +107,11 @@ def main(args):
         
         for batch_src, batch_adv in zip(train_loader, train_loader):
             # unpack both source and adversary batches
-            data, y, d     = unpack_batch(batch_src)
-            data, y, d     = data.to(device), y.to(device), d.to(device)
+            data, y, d = unpack_batch(batch_src)
+            data, y, d = data.to(device), y.to(device), d.to(device)
 
             adv_data, y_adv, d_adv = unpack_batch(batch_adv)
-            adv_data, y_adv        = adv_data.to(device), y_adv.to(device)
+            adv_data, y_adv = adv_data.to(device), y_adv.to(device)
             # (we don’t need d_adv here, but it’s available if you do)
 
             # 1) Feature/class update
