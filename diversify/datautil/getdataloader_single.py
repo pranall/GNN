@@ -72,11 +72,36 @@ def get_act_dataloader(args):
     targetdata = combindataset(args, target_datalist)
     targetdata = ConsistentFormatWrapper(targetdata)
 
-    loaders = (
-        DataLoader(tr, batch_size=args.batch_size, num_workers=min(2, args.N_WORKERS), 
-        DataLoader(tr, batch_size=args.batch_size, num_workers=min(2, args.N_WORKERS)),
-        DataLoader(val, batch_size=args.batch_size, num_workers=min(2, args.N_WORKERS)),
-        DataLoader(targetdata, batch_size=args.batch_size, num_workers=min(2, args.N_WORKERS))
+    train_loader = DataLoader(
+        tr, 
+        batch_size=args.batch_size, 
+        shuffle=True,
+        num_workers=min(4, args.N_WORKERS),
+        collate_fn=collate_gnn if args.use_gnn else None
     )
     
-    return (*loaders, tr, val, targetdata)
+    train_ns_loader = DataLoader(
+        tr,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=min(4, args.N_WORKERS),
+        collate_fn=collate_gnn if args.use_gnn else None
+    )
+    
+    val_loader = DataLoader(
+        val,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=min(4, args.N_WORKERS),
+        collate_fn=collate_gnn if args.use_gnn else None
+    )
+    
+    test_loader = DataLoader(
+        targetdata,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=min(4, args.N_WORKERS),
+        collate_fn=collate_gnn if args.use_gnn else None
+    )
+    
+    return train_loader, train_ns_loader, val_loader, test_loader, tr, val, targetdata
