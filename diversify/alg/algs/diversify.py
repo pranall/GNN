@@ -169,13 +169,6 @@ class Diversify(Algorithm):
         y = y.to(device).long()
         d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
         x = to_device(raw_x, device)
-
-        # ─── DEBUG ───
-        if hasattr(x, 'batch'):
-            print("‼️ DEBUG x.batch.min/max:", x.batch.min().item(), x.batch.max().item())
-            print("   expected max < num_graphs =", y.size(0))
-        # ─────────────
-
         features = self.featurizer(x)
         z        = self.abottleneck(features)
         preds    = self.aclassifier(z)
