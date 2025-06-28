@@ -1,29 +1,22 @@
-# ─── suppress that “‼️ DEBUG x.batch.min/max” spam ───
-import builtins
-_orig_print = builtins.print
-def print(*args, **kwargs):
-    if args and isinstance(args[0], str) and args[0].startswith("‼️ DEBUG x.batch.min/max"):
-        return
-    _orig_print(*args, **kwargs)
-
-# ─── now the usual warnings/logging setup ───
-import warnings, logging
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="To copy construct from a tensor.*"
-)
-logging.basicConfig(level=logging.INFO, format="%(message)s")
-# push all torch_geometric logs to ERROR
-logging.getLogger("torch_geometric").setLevel(logging.ERROR)
-
-# ─── disable PyG internal debug mode if available ───
+# ─── Silence PyG’s own debug prints ───
+import logging
 try:
+    # turns off PyG debug assertions & prints
     from torch_geometric.debug import set_debug
     set_debug(False)
 except ImportError:
     pass
 
+# only show warnings & errors from torch_geometric
+logging.getLogger("torch_geometric").setLevel(logging.ERROR)
+
+# now do your regular imports
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message="To copy construct from a tensor.*"
+)
 # ─── now import the rest ───
 import os, time
 import torch
