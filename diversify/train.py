@@ -9,7 +9,7 @@ from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.data import Data
 from gnn.temporal_gcn import TemporalGCN
 from gnn.graph_builder import GraphBuilder
-
+from google.colab import files
 
 class DomainAdversarialLoss(nn.Module):
     def __init__(self, bottleneck_dim):
@@ -55,6 +55,13 @@ def main(args):
 
     # ─── Load data loaders ───────────────────────────────────
     train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
+    batch = next(iter(train_loader))
+    torch.save(batch, 'sample_batch.pt')  # Save to Colab's working dir
+    print(batch)
+    print(batch.x.shape, batch.edge_index.shape, batch.y.shape, batch.domain.shape)
+    print(batch.x[0])  # First node's feature vector
+    print(batch.edge_index)
+    files.download('sample_batch.pt')
 
     # ─── SANITY CHECK: inspect one raw batch ─────────────────
     debug_batch = next(iter(train_loader))
