@@ -13,6 +13,22 @@ from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.utils import to_networkx
 import networkx as nx
 from eval.evaluate import evaluate_model, visualize_results
+from torch_geometric.data import Data
+from gnn.temporal_gcn import TemporalGCN
+
+# At the top of the file, below your other imports
+def unpack_batch(batch_item):
+    """
+    Given either a tuple (DataBatch, y, d) or a DataBatch with .y/.domain,
+    returns (data, y, d).
+    """
+    if isinstance(batch_item, tuple):
+        data, y, d = batch_item
+    else:
+        data = batch_item
+        y    = data.y
+        d    = data.domain
+    return data, y, d
 
 class DomainAdversarialLoss(nn.Module):
     def __init__(self, bottleneck_dim):
@@ -86,17 +102,26 @@ def main(args):
         epoch_class_loss = []
         epoch_dis_loss = []
         
-        for (x, y, d), (x_adv, y_adv, _) in zip(train_loader, train_loader):
-            x, y, d = x.to(device), y.to(device), d.to(device)
-            x_adv, y_adv = x_adv.to(device), y_adv.to(device)
-            
-            res_a = algorithm.update_a([x, y, d, y, d], optimizer)
+        for batch_src, batch_adv in zip(train_loader, train_loader):
+            # unpack both source and adversary batches
+            data, y, d     = unpack_batch(batch_src)
+            data, y, d     = data.to(device), y.to(device), d.to(device)
+
+            adv_data, y_adv, d_adv = unpack_batch(batch_adv)
+            adv_data, y_adv        = adv_data.to(device), y_adv.to(device)
+            # (we don’t need d_adv here, but it’s available if you do)
+
+            # 1) Feature/class update
+            res_a = algorithm.update_a([data, y, d, y, d], optimizer)
             epoch_class_loss.append(res_a.get('class', 0))
-            
-            res_d = algorithm.update_d([x_adv, y_adv, d], optimizer)
+
+            # 2) Domain‐discriminator update
+            res_d = algorithm.update_d([adv_data, y_adv, d], optimizer)
             epoch_dis_loss.append(res_d.get('dis', 0))
-            
-            _ = algorithm.update((x_adv, y_adv), optimizer)
+
+            # 3) Domain‐invariant update
+            _ = algorithm.update((adv_data, y_adv), optimizer)
+
 
         train_acc = modelopera.accuracy(algorithm, train_ns_loader, device)
         val_acc = modelopera.accuracy(algorithm, val_loader, device)
