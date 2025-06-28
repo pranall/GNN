@@ -1,5 +1,31 @@
-import os
-import time
+# ─── suppress that “‼️ DEBUG x.batch.min/max” spam ───
+import builtins
+_orig_print = builtins.print
+def print(*args, **kwargs):
+    if args and isinstance(args[0], str) and args[0].startswith("‼️ DEBUG x.batch.min/max"):
+        return
+    _orig_print(*args, **kwargs)
+
+# ─── now the usual warnings/logging setup ───
+import warnings, logging
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message="To copy construct from a tensor.*"
+)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+# push all torch_geometric logs to ERROR
+logging.getLogger("torch_geometric").setLevel(logging.ERROR)
+
+# ─── disable PyG internal debug mode if available ───
+try:
+    from torch_geometric.debug import set_debug
+    set_debug(False)
+except ImportError:
+    pass
+
+# ─── now import the rest ───
+import os, time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -9,25 +35,6 @@ from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.data import Data
 from gnn.temporal_gcn import TemporalGCN
 from gnn.graph_builder import GraphBuilder
-import warnings
-import logging
-
-# ─── Silence that “To copy construct from a tensor…” warning ───
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="To copy construct from a tensor.*"
-)
-
-# ─── Turn off ALL torch_geometric DEBUG logs ───
-logging.basicConfig(level=logging.INFO, format="%(message)s")
-logging.getLogger("torch_geometric").setLevel(logging.WARNING)
-try:
-    from torch_geometric.debug import set_debug
-    set_debug(False)
-except ImportError:
-    pass
-
 
 class DomainAdversarialLoss(nn.Module):
     def __init__(self, bottleneck_dim):
