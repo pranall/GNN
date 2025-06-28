@@ -1,38 +1,60 @@
-# Model Architecture (Matches temporal_gcn.py)
+# Model Architecture
 model:
   type: "TemporalGCN"
-  input_dim: 8              # EMG channels (Myo Armband)
+  input_dim: 8
   hidden_dim: 64
-  output_dim: 128           # Added to match your code
+  output_dim: 128
   dropout: 0.3
   num_layers: 2
+  graph_builder:
+    type: "functional"
+    threshold: 0.7
 
-# Training (Colab-compatible defaults)
+# Training Parameters
 training:
   epochs: 100
   batch_size: 32
   lr: 0.001
-  optimizer: "adamw"        # Changed to match your train.py
-  weight_decay: 0.0005      # Matches train.py value
-  use_cuda: True            # Auto-detects GPU
+  optimizer: "adamw"
+  weight_decay: 0.0005
+  use_cuda: true
+  early_stop_patience: 10
+  checkpoint_freq: 5
 
-# Data (EMG-specific)
+# Data Configuration
 data:
-  sampling_rate: 2000       # Myo Armband default
-  window_size: 200          # Samples per window
-  stride: 50                # Sliding window step
-  graph_type: "functional"  # "functional" or "spatial"
-  normalize: True           # Normalize EMG signals
+  sampling_rate: 2000
+  window_size: 200
+  stride: 50
+  graph_type: "functional"
+  normalize: true
+  test_split: 0.2
+  num_workers: 4
+
+# Domain Adaptation
+domain:
+  adv_weight: 0.1
+  latent_domains: 4
+  alpha: 0.5
 
 # Evaluation
 evaluation:
-  frequency: 10             # Epochs between domain metric calculations
+  frequency: 10
   metrics:
-    standard: ["accuracy", "f1"]
+    standard:
+      - "accuracy"
+      - "f1"
+      - "confusion_matrix"
     domain_adaptation:
       - "h_divergence"
       - "silhouette"
   thresholds:
     h_divergence_warning: 0.5
     silhouette_warning: 0.2
-    min_accuracy: 0.7       # For model saving
+    min_accuracy: 0.7
+
+# Hardware
+hardware:
+  cuda: true
+  benchmark: true
+  deterministic: false
