@@ -1,6 +1,12 @@
-# ─── Silence PyG’s own debug assertions & prints ───
+# ─── Silence PyG’s debug prints & any stray warnings ───
+import logging
 from torch_geometric.debug import set_debug
+
 set_debug(False)
+logging.getLogger("torch_geometric").setLevel(logging.ERROR)
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 import os, time
 import torch
