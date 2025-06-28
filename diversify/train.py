@@ -42,6 +42,20 @@ def main(args):
     
     # Get data loaders
     train_loader, train_ns_loader, val_loader, test_loader, tr, val, targetdata = get_act_dataloader(args)
+    if epoch % 10 == 0:
+        loaders = {
+            'source': train_ns_loader,
+            'target': val_loader
+        }
+        eval_results = evaluate_model(algorithm, loaders, device)
+        # Optionally: save the best model if h-divergence improves
+        current_h_div = eval_results['domain_metrics']['h_divergence']
+        if current_h_div < best_h_div and eval_results['source']['accuracy'] > 0.7:
+            best_h_div = current_h_div
+            torch.save(algorithm.state_dict(),
+                       os.path.join(args.output, 'best_domain_model.pth'))
+        print(f"Domain Metrics - H-Div: {current_h_div:.3f}, Silhouette: {eval_results['domain_metrics']['silhouette']:.3f}")
+
     # After get_act_dataloader() call
     sample_batch = next(iter(train_loader))
     print(f"\n=== GRAPH SANITY CHECK ===")
@@ -137,6 +151,14 @@ def main(args):
         'logs': logs,
         'config': config
     }, os.path.join(args.output, 'training_logs.pt'))
+
+final_loaders = {
+    'source': train_ns_loader,
+    'target': test_loader
+}
+final_results = evaluate_model(algorithm, final_loaders, device)
+visualize_results(final_results, args.output)
+np.savez(os.path.join(args.output, 'final_metrics.npz'), **final_results)
 
 if __name__ == '__main__':
     args = get_args()
