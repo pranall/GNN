@@ -12,22 +12,20 @@ class TemporalGCN(nn.Module):
         self.in_features = output_dim
 
     def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
-
-        # if x has extra dims (e.g. [N,1,200]), flatten to [N,200]
-        if x.dim() > 2:
-            x = x.view(x.size(0), -1)
-
-        # two graph-conv layers
-        h = F.relu(self.gcn1(x, edge_index))
-        h = F.relu(self.gcn2(h, edge_index))
-
-        # **global mean pooling over each graph in the batch**
-        hg = global_mean_pool(h, batch)     # → [batch_size, hidden_dim]
-
-        # project to output dim
-        out = self.classifier(hg)           # → [batch_size, output_dim]
-        return out
+        x, edge_index = data.x, data.edge_index
+    
+        # Ensure proper input dimensions
+        if x.dim() == 3:  # [batch*num_nodes, 1, timesteps]
+            x = x.squeeze(1)  # [batch*num_nodes, timesteps]
+    
+        # Add residual connections
+        identity = x
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+    
+    return x + identity  # Residual connection
 
     def reconstruct(self, features):
         return self.recon(features)
