@@ -97,32 +97,33 @@ class Diversify(Algorithm):
         else:
             raise ValueError(f"Unsupported x.dim(): {x.dim()}")
 
-    def update_d(self, batch, opt):
-        x, c, d = batch
+    def update_d(self, minibatches, opt):
         device = next(self.parameters()).device
-        x = to_device(x, device)
-        c = c.to(device).long()
-        d = d.to(device).long().clamp(0, self.args.domain_num - 1)
+        raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
+    
+        # 1) Prepare data
+        x = to_device(raw_x, device)
+        d = d.to(device).long()
+        assert torch.all((d >= 0) & (d < self.args.latent_domain_num)), f"Invalid domains: {d.unique()}"
 
-        z = self.dbottleneck(self.featurizer(x))
-        d_in = Adver_network.ReverseLayerF.apply(z, self.args.alpha1)
-        d_out = self.ddiscriminator(d_in)
-        c_out = self.dclassifier(z)
-
-        dis_loss = F.cross_entropy(d_out, d) * self.lambda_dis
-        ent_loss = Entropylogits(c_out) * self.args.lam
-        cls_loss = self.criterion(c_out, c)
-        total = dis_loss + ent_loss + cls_loss
-
+        # 2) Get features and pool
+        features = self.featurizer(x)
+        features = global_mean_pool(features, x.batch)
+    
+        # Debug shapes
+        print(f"[DEBUG] Pooled features: {features.shape}, domains: {d.shape}")  # Should match!
+    
+        # 3) Domain classification
+        d_out = self.dclassifier(features)
+        d_out = d_out.view(-1, self.args.latent_domain_num)  # Ensure [batch_size, num_domains]
+    
+        # 4) Optimize
+        loss = F.cross_entropy(d_out, d) * getattr(self, 'lambda_dis', 1.0)
         opt.zero_grad()
-        total.backward()
+        loss.backward()
         opt.step()
-
-        return {
-            'dis': dis_loss.item(),
-            'ent': ent_loss.item(),
-            'total': total.item()
-        }
+    
+        return {'dis': loss.item()}
 
     def set_dlabel(self, loader):
         self.featurizer.eval()
