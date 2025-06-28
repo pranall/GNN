@@ -15,6 +15,10 @@ from torch_geometric.data import Data
 from gnn.temporal_gcn import TemporalGCN
 from eval.evaluate import evaluate_model, visualize_results
 import networkx as nx
+from datautil.actdata.cross_people import load_datasets
+
+tr, val, targetdata = load_datasets(args)
+
 
 def unpack_batch(batch_item):
     """Robust batch unpacking handling multiple input formats"""
@@ -57,8 +61,13 @@ def main(args):
 
     # Data loading
     try:
-        train_loader, train_ns_loader, val_loader, test_loader, _, _, _ = \
-            get_act_dataloader(args)
+        train_loader, train_ns_loader, val_loader, test_loader, _, _, _ = get_act_dataloader(
+            args, 
+            tr, 
+            val, 
+            targetdata
+    )
+            
     except Exception as e:
         raise RuntimeError(f"Data loading failed: {e}")
 
