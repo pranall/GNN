@@ -74,20 +74,35 @@ def collate_gnn(batch):
     if isinstance(batch[0], Data):
         # All elements are Data objects
         return Batch.from_data_list(batch)
+
     elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
         datas, ys, ds = [], [], []
         for data, y, d in batch:
-            data.y = torch.tensor(y, dtype=torch.long) if not hasattr(data, "y") else data.y
-            data.domain = torch.tensor(d, dtype=torch.long) if not hasattr(data, "domain") else data.domain
+            # only wrap scalars/arrays in torch.tensor; clone existing tensors
+            if not hasattr(data, "y"):
+                if isinstance(y, torch.Tensor):
+                    data.y = y.clone().detach().long()
+                else:
+                    data.y = torch.tensor(y, dtype=torch.long)
+
+            if not hasattr(data, "domain"):
+                if isinstance(d, torch.Tensor):
+                    data.domain = d.clone().detach().long()
+                else:
+                    data.domain = torch.tensor(d, dtype=torch.long)
+
             datas.append(data)
             ys.append(y)
             ds.append(d)
+
         batched = Batch.from_data_list(datas)
-        ys = torch.tensor(ys, dtype=torch.long)
-        ds = torch.tensor(ds, dtype=torch.long)
+        ys      = torch.tensor(ys, dtype=torch.long)
+        ds      = torch.tensor(ds, dtype=torch.long)
         return batched, ys, ds
+
     else:
         raise ValueError("Unsupported batch format for collate_gnn")
+
 
 def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
     return DataLoader(dataset=dataset, batch_size=batch_size,
