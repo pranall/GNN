@@ -28,3 +28,14 @@ data:
 eval:
   test_split: 0.2
   metrics: ["accuracy", "f1", "confusion_matrix"]
+
+evaluation:
+  metrics:
+    standard: ["accuracy", "f1"]
+    domain_adaptation:
+      - "h_divergence"
+      - "silhouette"
+      - "confusion_matrix"
+  thresholds:
+    h_divergence_warning: 0.5  # Alert if > 0.5
+    silhouette_warning: 0.2     # Alert if < 0.2
