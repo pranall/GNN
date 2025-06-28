@@ -12,7 +12,7 @@ class TemporalGCN(nn.Module):
         self.dropout = 0.3
         self.in_features = output_dim
 
-    def forward(self, data):
+    def forward(self, data, return_embeddings=False):
         x, edge_index = data.x, data.edge_index
         
         if x.dim() == 3:
@@ -23,7 +23,11 @@ class TemporalGCN(nn.Module):
         x = F.dropout(x, p=self.dropout, training=self.training)
         
         x = self.gcn2(x, edge_index)
-        return x
+        out = self.classifier(x)
+        
+        if return_embeddings:
+            return out, x
+        return out
 
     def reconstruct(self, features):
         return self.classifier(features)
