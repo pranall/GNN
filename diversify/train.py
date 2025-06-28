@@ -9,6 +9,25 @@ from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.data import Data
 from gnn.temporal_gcn import TemporalGCN
 from gnn.graph_builder import GraphBuilder
+import warnings
+import logging
+
+# ─── Silence that “To copy construct from a tensor…” warning ───
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    message="To copy construct from a tensor.*"
+)
+
+# ─── Turn off ALL torch_geometric DEBUG logs ───
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.getLogger("torch_geometric").setLevel(logging.WARNING)
+try:
+    from torch_geometric.debug import set_debug
+    set_debug(False)
+except ImportError:
+    pass
+
 
 class DomainAdversarialLoss(nn.Module):
     def __init__(self, bottleneck_dim):
@@ -61,19 +80,6 @@ def main(args):
     # Load data loaders
     train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
 
-    # Debug first batch
-    batch = next(iter(train_loader))
-    x, y, d = batch
-    print("🔎 BATCH X type     :", type(x))
-    if hasattr(x, 'x'):
-        print(" x.x.shape          :", x.x.shape)
-        print(" x.edge_index.shape:", x.edge_index.shape)
-        print(" x.batch.shape      :", x.batch.shape)
-    else:
-        print(" raw tensor shape   :", x.shape)
-    print(" labels y.shape     :", y.shape)
-    print(" domains d.shape    :", d.shape)
-
     # Initialize algorithm
     AlgoClass = alg.get_algorithm_class(args.algorithm)
     algorithm = AlgoClass(args).to(device)
@@ -110,13 +116,12 @@ def main(args):
         algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
         algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
 
-        # Smoke test
+        # Smoke test (no output spam)
         demo_x = torch.randn(8, feat_len, device=device)
         demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
         with torch.no_grad():
             demo_data = Data(x=demo_x, edge_index=demo_e)
-            demo_out = algorithm.featurizer(demo_data)
-        print("✅ Quick GNN smoke test output shape:", demo_out.shape)
+            _ = algorithm.featurizer(demo_data)
 
     algorithm.train()
     optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr, weight_decay=getattr(args, 'weight_decay', 0))
@@ -160,12 +165,14 @@ def main(args):
             best_val = logs['val_acc'][-1]
             torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
 
-        print(f"Epoch {epoch}/{args.max_epoch} — "
-              f"Train: {logs['train_acc'][-1]:.4f}, "
-              f"Val: {logs['val_acc'][-1]:.4f}, "
-              f"Time: {time.time()-start_time:.1f}s")
+        # --- concise epoch logging ---
+        elapsed   = time.time() - start_time
+        train_acc = logs['train_acc'][-1]
+        val_acc   = logs['val_acc'][-1]
+        logging.info(f"Epoch {epoch}/{args.max_epoch} — Train: {train_acc:.4f}, Val: {val_acc:.4f}, Time: {elapsed:.1f}s")
 
     print(f"Training complete. Best validation accuracy: {best_val:.4f}")
+
 
 if __name__ == '__main__':
     args = get_args()
