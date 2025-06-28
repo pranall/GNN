@@ -43,7 +43,7 @@ def collate_gnn(batch):
     
     return batched
 
-def get_dataloader_single(args, tr, val, targetdata):
+def get_act_dataloader(args, tr, val, targetdata):
     """
     Creates dataloaders with automatic resource optimization
     
