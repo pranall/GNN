@@ -39,7 +39,9 @@ def main(args):
     monitor = TrainingMonitor()
     train_loader, train_ns_loader, val_loader, test_loader, tr, val, targetdata = get_act_dataloader(args)
 
-    sample_batch = next(iter(train_loader))
+    batch_item   = next(iter(train_loader))
+    sample_batch = batch_item[0] if isinstance(batch_item, tuple) else batch_item
+
     print(f"\n=== GRAPH SANITY CHECK ===")
     print(f"Edges in first batch: {sample_batch.edge_index.shape[1]}")
     print(f"Edge examples:\n{sample_batch.edge_index[:, :5].t()}")
@@ -47,12 +49,13 @@ def main(args):
     if sample_batch.edge_index.shape[1] == 0:
         raise ValueError("CRITICAL: No edges detected in batch! Check graph builder.")
     
-    debug_batch = next(iter(train_loader))
-    print(f"\n=== Data Sanity Check ===")
+    batch_item  = next(iter(train_loader))
+    debug_batch = batch_item[0] if isinstance(batch_item, tuple) else batch_item
+    print(f"\n=== DATA SANITY CHECK ===")
     print(f"Batch Features: {debug_batch.x.shape}")
-    print(f"Edges: {debug_batch.edge_index.shape[1]}")
-    print(f"Labels: {torch.bincount(debug_batch.y)}")
-
+    print(f"Edges:          {debug_batch.edge_index.shape[1]}")
+    labels = batch_item[1] if isinstance(batch_item, tuple) else debug_batch.y
+    print(f"Labels:         {torch.bincount(labels)}")
     algorithm = alg.get_algorithm_class(args.algorithm)(args).to(device)
     
     if args.use_gnn:
