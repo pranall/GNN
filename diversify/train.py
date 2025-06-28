@@ -29,7 +29,6 @@ class DomainAdversarialLoss(nn.Module):
         return self.loss_fn(preds, labels.float())
 
 def main(args):
-    # Load config file
     with open('configs/emg_gnn.yaml') as f:
         config = yaml.safe_load(f)
     
@@ -37,26 +36,9 @@ def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     os.makedirs(args.output, exist_ok=True)
 
-    # Initialize training monitor
     monitor = TrainingMonitor()
-    
-    # Get data loaders
     train_loader, train_ns_loader, val_loader, test_loader, tr, val, targetdata = get_act_dataloader(args)
-    if epoch % 10 == 0:
-        loaders = {
-            'source': train_ns_loader,
-            'target': val_loader
-        }
-        eval_results = evaluate_model(algorithm, loaders, device)
-        # Optionally: save the best model if h-divergence improves
-        current_h_div = eval_results['domain_metrics']['h_divergence']
-        if current_h_div < best_h_div and eval_results['source']['accuracy'] > 0.7:
-            best_h_div = current_h_div
-            torch.save(algorithm.state_dict(),
-                       os.path.join(args.output, 'best_domain_model.pth'))
-        print(f"Domain Metrics - H-Div: {current_h_div:.3f}, Silhouette: {eval_results['domain_metrics']['silhouette']:.3f}")
 
-    # After get_act_dataloader() call
     sample_batch = next(iter(train_loader))
     print(f"\n=== GRAPH SANITY CHECK ===")
     print(f"Edges in first batch: {sample_batch.edge_index.shape[1]}")
@@ -65,14 +47,12 @@ def main(args):
     if sample_batch.edge_index.shape[1] == 0:
         raise ValueError("CRITICAL: No edges detected in batch! Check graph builder.")
     
-    # Batch verification
     debug_batch = next(iter(train_loader))
     print(f"\n=== Data Sanity Check ===")
     print(f"Batch Features: {debug_batch.x.shape}")
     print(f"Edges: {debug_batch.edge_index.shape[1]}")
     print(f"Labels: {torch.bincount(debug_batch.y)}")
 
-    # Initialize algorithm
     algorithm = alg.get_algorithm_class(args.algorithm)(args).to(device)
     
     if args.use_gnn:
@@ -83,7 +63,6 @@ def main(args):
         ).to(device)
         algorithm.featurizer = gnn
         
-        # Visualize graph
         sample_graph = Data(x=debug_batch.x[:8], edge_index=debug_batch.edge_index)
         nx_graph = to_networkx(sample_graph, to_undirected=True)
         plt.figure(figsize=(8,6))
@@ -95,7 +74,8 @@ def main(args):
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.max_epoch)
     
     best_val = 0.0
-    logs = {'class_loss': [], 'dis_loss': []}  # Track losses for monitoring
+    best_h_div = float('inf')
+    logs = {'class_loss': [], 'dis_loss': []}
 
     for epoch in range(1, args.max_epoch+1):
         start_time = time.time()
@@ -107,33 +87,35 @@ def main(args):
             x, y, d = x.to(device), y.to(device), d.to(device)
             x_adv, y_adv = x_adv.to(device), y_adv.to(device)
             
-            # Feature update
             res_a = algorithm.update_a([x, y, d, y, d], optimizer)
             epoch_class_loss.append(res_a.get('class', 0))
             
-            # Domain update
             res_d = algorithm.update_d([x_adv, y_adv, d], optimizer)
             epoch_dis_loss.append(res_d.get('dis', 0))
             
-            # Domain-invariant update
             _ = algorithm.update((x_adv, y_adv), optimizer)
 
-        # Evaluation
         train_acc = modelopera.accuracy(algorithm, train_ns_loader, device)
         val_acc = modelopera.accuracy(algorithm, val_loader, device)
         
-        # Update monitoring
         logs['class_loss'].extend(epoch_class_loss)
         logs['dis_loss'].extend(epoch_dis_loss)
         monitor.update('train', np.mean(epoch_class_loss), train_acc)
         monitor.update('val', np.mean(epoch_dis_loss), val_acc)
         
-        # Save best model
+        if epoch % 10 == 0:
+            loaders = {'source': train_ns_loader, 'target': val_loader}
+            eval_results = evaluate_model(algorithm, loaders, device)
+            current_h_div = eval_results['domain_metrics']['h_divergence']
+            if current_h_div < best_h_div and eval_results['source']['accuracy'] > 0.7:
+                best_h_div = current_h_div
+                torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_domain_model.pth'))
+            print(f"Domain Metrics - H-Div: {current_h_div:.3f}, Silhouette: {eval_results['domain_metrics']['silhouette']:.3f}")
+
         if val_acc > best_val:
             best_val = val_acc
             torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
 
-        # Print epoch stats
         print(f"Epoch {epoch}/{args.max_epoch} | "
               f"Train: {train_acc:.4f} (Loss: {np.mean(epoch_class_loss):.4f}) | "
               f"Val: {val_acc:.4f} (Loss: {np.mean(epoch_dis_loss):.4f}) | "
@@ -142,23 +124,18 @@ def main(args):
         
         scheduler.step()
 
-    # Finalize and save results
     monitor.plot(args.output)
     print(f"\nTraining complete. Best validation accuracy: {best_val:.4f}")
     
-    # Save final logs
     torch.save({
         'logs': logs,
         'config': config
     }, os.path.join(args.output, 'training_logs.pt'))
 
-final_loaders = {
-    'source': train_ns_loader,
-    'target': test_loader
-}
-final_results = evaluate_model(algorithm, final_loaders, device)
-visualize_results(final_results, args.output)
-np.savez(os.path.join(args.output, 'final_metrics.npz'), **final_results)
+    final_loaders = {'source': train_ns_loader, 'target': test_loader}
+    final_results = evaluate_model(algorithm, final_loaders, device)
+    visualize_results(final_results, args.output)
+    np.savez(os.path.join(args.output, 'final_metrics.npz'), **final_results)
 
 if __name__ == '__main__':
     args = get_args()
