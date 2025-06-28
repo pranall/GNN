@@ -12,6 +12,7 @@ from utils.monitor import TrainingMonitor
 from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.utils import to_networkx
 import networkx as nx
+from eval.evaluate import evaluate_model, visualize_results
 
 class DomainAdversarialLoss(nn.Module):
     def __init__(self, bottleneck_dim):
