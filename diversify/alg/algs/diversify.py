@@ -5,12 +5,12 @@ from collections import Counter
 import numpy as np
 from torch.utils.data import Subset
 from torch_geometric.data import Data, Batch
-
 from alg.modelopera import get_fea
 from alg.algs.base import Algorithm
 from loss.common_loss import Entropylogits
 from network import Adver_network, common_network
 from sklearn.cluster import KMeans
+from torch_geometric.nn import global_mean_pool
 
 def to_device(batch, device):
     if isinstance(batch, (Data, Batch)):
