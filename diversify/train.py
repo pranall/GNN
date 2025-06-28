@@ -41,6 +41,14 @@ def main(args):
     
     # Get data loaders
     train_loader, train_ns_loader, val_loader, test_loader, tr, val, targetdata = get_act_dataloader(args)
+    # After get_act_dataloader() call
+    sample_batch = next(iter(train_loader))
+    print(f"\n=== GRAPH SANITY CHECK ===")
+    print(f"Edges in first batch: {sample_batch.edge_index.shape[1]}")
+    print(f"Edge examples:\n{sample_batch.edge_index[:, :5].t()}")
+
+    if sample_batch.edge_index.shape[1] == 0:
+        raise ValueError("CRITICAL: No edges detected in batch! Check graph builder.")
     
     # Batch verification
     debug_batch = next(iter(train_loader))
