@@ -6,6 +6,8 @@ from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from collections import defaultdict
+from sklearn.ensemble import RandomForestClassifier  # For H-divergence
+from sklearn.metrics import silhouette_score  # For clustering quality
 
 def calculate_h_divergence(source_feats, target_feats):
     """Robust H-Divergence calculation"""
