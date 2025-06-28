@@ -1,23 +1,7 @@
-# ─── Silence PyG’s own debug prints ───
-import logging
-try:
-    # turns off PyG debug assertions & prints
-    from torch_geometric.debug import set_debug
-    set_debug(False)
-except ImportError:
-    pass
+# ─── Silence PyG’s own debug assertions & prints ───
+from torch_geometric.debug import set_debug
+set_debug(False)
 
-# only show warnings & errors from torch_geometric
-logging.getLogger("torch_geometric").setLevel(logging.ERROR)
-
-# now do your regular imports
-import warnings
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="To copy construct from a tensor.*"
-)
-# ─── now import the rest ───
 import os, time
 import torch
 import torch.nn as nn
