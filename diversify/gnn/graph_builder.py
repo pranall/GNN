@@ -121,6 +121,8 @@ class GraphBuilder:
     def _create_edges(self, matrix: torch.Tensor, 
                      threshold: float, device: torch.device) -> torch.LongTensor:
         """Create edges between sensors"""
+        if torch.sum(matrix > threshold) < 4:  # If too sparse
+            threshold = torch.median(matrix[matrix > 0.1]) * 0.8  # Lower threshold dynamically                
         n = matrix.shape[0]
         rows, cols = torch.where(matrix.abs() > threshold)
         
