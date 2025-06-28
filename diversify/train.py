@@ -42,7 +42,8 @@ class DomainAdversarialLoss(nn.Module):
 
 def main(args):
     # Initialization
-    with open('configs/emg_gnn.yaml') as f:
+    cfg_path = os.path.join(os.path.dirname(__file__), 'emg_gnn.yml')
+    with open(cfg_path) as f:
         config = yaml.safe_load(f)
 
     set_random_seed(args.seed)
