@@ -71,38 +71,22 @@ class SafeSubset(Subset):
                 return data
 
 def collate_gnn(batch):
-    if isinstance(batch[0], Data):
-        # All elements are Data objects
-        return Batch.from_data_list(batch)
-
-    elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
-        datas, ys, ds = [], [], []
-        for data, y, d in batch:
-            # only wrap scalars/arrays in torch.tensor; clone existing tensors
-            if not hasattr(data, "y"):
-                if isinstance(y, torch.Tensor):
-                    data.y = y.clone().detach().long()
-                else:
-                    data.y = torch.tensor(y, dtype=torch.long)
-
-            if not hasattr(data, "domain"):
-                if isinstance(d, torch.Tensor):
-                    data.domain = d.clone().detach().long()
-                else:
-                    data.domain = torch.tensor(d, dtype=torch.long)
-
-            datas.append(data)
-            ys.append(y)
-            ds.append(d)
-
-        batched = Batch.from_data_list(datas)
-        ys      = torch.tensor(ys, dtype=torch.long)
-        ds      = torch.tensor(ds, dtype=torch.long)
-        return batched, ys, ds
-
-    else:
-        raise ValueError("Unsupported batch format for collate_gnn")
-
+    """Properly formats (graph, label, domain) tuples into PyG batches"""
+    graphs, labels, domains = zip(*batch)
+    
+    # Assign labels and domains to graph objects
+    for graph, y, d in zip(graphs, labels, domains):
+        graph.y = torch.tensor(y, dtype=torch.long)
+        graph.domain = torch.tensor(d, dtype=torch.long)
+    
+    # Create batch and ensure edge_index exists
+    batched = Batch.from_data_list(graphs)
+    if batched.edge_index.shape[1] == 0:
+        # Add fallback edges if empty
+        num_nodes = batched.num_nodes
+        batched.edge_index = torch.combinations(torch.arange(num_nodes), r=2).t().contiguous()
+    
+    return batched
 
 def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
     return DataLoader(dataset=dataset, batch_size=batch_size,
