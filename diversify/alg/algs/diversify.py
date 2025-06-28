@@ -124,6 +124,9 @@ class Diversify(Algorithm):
         
         pooled = global_mean_pool(features, adv_data.batch)
         print(f"[DEBUG] Pooled features: {pooled.shape}, Domain labels: {d_adv.shape}")
+        print("Pooled features shape:", pooled.shape)  # Should be [32, feature_dim]
+        print("Domain labels shape:", d_adv.shape)    # Should be [32]
+        assert pooled.shape[0] == d_adv.shape[0], "Batch size mismatch after pooling!"
     
         # =============== [4] Domain Classification ===============
         d_out = self.dclassifier(pooled)
