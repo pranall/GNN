@@ -31,10 +31,13 @@ def collate_gnn(batch):
     graphs, labels, domains = zip(*batch)
     
     for graph, y, d in zip(graphs, labels, domains):
-        graph.y = torch.tensor(y, dtype=torch.long)
-        graph.domain = torch.tensor(d, dtype=torch.long)
+        # Modern tensor construction (avoids warnings)
+        graph.y = y.clone().detach().long() if isinstance(y, torch.Tensor) else torch.tensor(y, dtype=torch.long)
+        graph.domain = d.clone().detach().long() if isinstance(d, torch.Tensor) else torch.tensor(d, dtype=torch.long)
     
     batched = Batch.from_data_list(graphs)
+    
+    # Handle empty edge_index (optional)
     if batched.edge_index.shape[1] == 0:
         num_nodes = batched.num_nodes
         batched.edge_index = torch.combinations(torch.arange(num_nodes), r=2).t().contiguous()
