@@ -78,6 +78,64 @@ def domain_adaptation_metrics(source_metrics, target_metrics):
     plt.legend()
     plt.savefig("domain_shift.png")
     plt.close()
+
+    def evaluate_domain_adaptation(model, source_loader, target_loader, device="cuda"):
+    """
+    Comprehensive evaluation for domain adaptation scenarios
+    Returns:
+        {
+            'classification': {accuracy, f1, ...},
+            'domain': {
+                'h_divergence': float,
+                'silhouette': float,
+                'confusion': ndarray
+            }
+        }
+    """
+    model.eval()
+    source_features, source_labels = [], []
+    target_features, target_labels = [], []
+    
+    with torch.no_grad():
+        # Process source domain
+        for data in source_loader:
+            graphs, labels = data
+            graphs = graphs.to(device)
+            outputs = model(graphs)
+            source_features.append(outputs.cpu())
+            source_labels.append(labels.cpu())
+        
+        # Process target domain
+        for data in target_loader:
+            graphs, labels = data
+            graphs = graphs.to(device)
+            outputs = model(graphs)
+            target_features.append(outputs.cpu())
+            target_labels.append(labels.cpu())
+    
+    # Convert to tensors
+    source_features = torch.cat(source_features)
+    source_labels = torch.cat(source_labels)
+    target_features = torch.cat(target_features)
+    target_labels = torch.cat(target_labels)
+    
+    # Calculate metrics
+    results = {
+        'classification': calculate_metrics(source_labels, model.predict(source_features)),
+        'domain': {
+            'h_divergence': calculate_h_divergence(source_features, target_features),
+            'silhouette': calculate_silhouette(
+                torch.cat([source_features, target_features]),
+                torch.cat([source_labels, target_labels])
+            ),
+            'confusion': confusion_matrix(source_labels, target_labels)
+        }
+    }
+    
+    return results
+
+
+
     
     return {
         "h_divergence": h_div,
