@@ -135,7 +135,8 @@ class GraphBuilder:
             torch.cat([rows, cols]),
             torch.cat([cols, rows])
         ], dim=0).to(device)
-        
+        print(f"Similarity matrix range: {matrix.min():.2f} to {matrix.max():.2f}")
+        print(f"Active threshold: {threshold:.2f}")
         return edge_index.unique(dim=1)  # Remove any duplicates
 
     def _create_default_edges(self, num_sensors: int, device: torch.device) -> torch.LongTensor:
