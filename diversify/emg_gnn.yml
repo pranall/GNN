@@ -1,0 +1,30 @@
+# Model Architecture (Matches temporal_gcn.py)
+model:
+  type: "TemporalGCN"
+  input_dim: 8              # EMG channels (Myo Armband)
+  hidden_dim: 64
+  num_classes: 5            # Adjust to your gesture classes
+  dropout: 0.3
+  num_layers: 2
+
+# Training (Colab-compatible defaults)
+training:
+  epochs: 100
+  batch_size: 32
+  lr: 0.001
+  optimizer: "adam"
+  weight_decay: 1e-4
+  use_cuda: True            # Auto-detects GPU in Colab
+
+# Data (EMG-specific)
+data:
+  sampling_rate: 2000       # Myo Armband default
+  window_size: 200          # Samples per window
+  stride: 50                # Sliding window step
+  graph_type: "functional"  # "functional" or "spatial"
+  normalize: True           # Normalize EMG signals
+
+# Evaluation
+eval:
+  test_split: 0.2
+  metrics: ["accuracy", "f1", "confusion_matrix"]
