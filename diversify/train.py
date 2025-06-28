@@ -1,14 +1,5 @@
-# ─── Silence PyG’s debug prints & any stray warnings ───
-import logging
-from torch_geometric.debug import set_debug
-
-set_debug(False)
-logging.getLogger("torch_geometric").setLevel(logging.ERROR)
-
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
-
-import os, time
+import os
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -70,6 +61,19 @@ def main(args):
     # Load data loaders
     train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
 
+    # Debug first batch
+    batch = next(iter(train_loader))
+    x, y, d = batch
+    print("🔎 BATCH X type     :", type(x))
+    if hasattr(x, 'x'):
+        print(" x.x.shape          :", x.x.shape)
+        print(" x.edge_index.shape:", x.edge_index.shape)
+        print(" x.batch.shape      :", x.batch.shape)
+    else:
+        print(" raw tensor shape   :", x.shape)
+    print(" labels y.shape     :", y.shape)
+    print(" domains d.shape    :", d.shape)
+
     # Initialize algorithm
     AlgoClass = alg.get_algorithm_class(args.algorithm)
     algorithm = AlgoClass(args).to(device)
@@ -106,12 +110,13 @@ def main(args):
         algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
         algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
 
-        # Smoke test (no output spam)
+        # Smoke test
         demo_x = torch.randn(8, feat_len, device=device)
         demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
         with torch.no_grad():
             demo_data = Data(x=demo_x, edge_index=demo_e)
-            _ = algorithm.featurizer(demo_data)
+            demo_out = algorithm.featurizer(demo_data)
+        print("✅ Quick GNN smoke test output shape:", demo_out.shape)
 
     algorithm.train()
     optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr, weight_decay=getattr(args, 'weight_decay', 0))
@@ -155,14 +160,12 @@ def main(args):
             best_val = logs['val_acc'][-1]
             torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
 
-        # --- concise epoch logging ---
-        elapsed   = time.time() - start_time
-        train_acc = logs['train_acc'][-1]
-        val_acc   = logs['val_acc'][-1]
-        logging.info(f"Epoch {epoch}/{args.max_epoch} — Train: {train_acc:.4f}, Val: {val_acc:.4f}, Time: {elapsed:.1f}s")
+        print(f"Epoch {epoch}/{args.max_epoch} — "
+              f"Train: {logs['train_acc'][-1]:.4f}, "
+              f"Val: {logs['val_acc'][-1]:.4f}, "
+              f"Time: {time.time()-start_time:.1f}s")
 
     print(f"Training complete. Best validation accuracy: {best_val:.4f}")
-
 
 if __name__ == '__main__':
     args = get_args()
