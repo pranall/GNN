@@ -97,28 +97,45 @@ class Diversify(Algorithm):
         else:
             raise ValueError(f"Unsupported x.dim(): {x.dim()}")
 
-    def update_d(self, minibatches, opt):
+    def update_d(self, inputs, opt):  # Changed parameter name from minibatches to inputs for consistency
+        """
+        Domain-discriminator update step with shape safety checks
+        """
         device = next(self.parameters()).device
-        raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
+        adv_data, y_adv, d_adv = inputs
     
-        # 1) Prepare data
-        x = to_device(raw_x, device)
-        d = d.to(device).long()
-        assert torch.all((d >= 0) & (d < self.args.latent_domain_num)), f"Invalid domains: {d.unique()}"
-
-        # 2) Get features and pool
-        features = self.featurizer(x)
-        features = global_mean_pool(features, x.batch)
+        # =============== [1] Input Validation ===============
+        print(f"[DEBUG] Input shapes - adv_data: {adv_data.shape if hasattr(adv_data, 'shape') else adv_data}, "
+          f"y_adv: {y_adv.shape}, d_adv: {d_adv.shape}")
     
-        # Debug shapes
-        print(f"[DEBUG] Pooled features: {features.shape}, domains: {d.shape}")  # Should match!
+        # =============== [2] Feature Extraction ===============
+        features = self.featurizer(adv_data)
+        print(f"[DEBUG] Pre-pool features: {features.shape}")
     
-        # 3) Domain classification
-        d_out = self.dclassifier(features)
-        d_out = d_out.view(-1, self.args.latent_domain_num)  # Ensure [batch_size, num_domains]
+        # =============== [3] Graph Pooling ===============
+        if not hasattr(adv_data, 'batch'):
+            raise ValueError("Input data missing 'batch' attribute for graph pooling")
+        
+        pooled = global_mean_pool(features, adv_data.batch)
+        print(f"[DEBUG] Pooled features: {pooled.shape}, Domain labels: {d_adv.shape}")
     
-        # 4) Optimize
-        loss = F.cross_entropy(d_out, d) * getattr(self, 'lambda_dis', 1.0)
+        # =============== [4] Domain Classification ===============
+        d_out = self.dclassifier(pooled)
+    
+        # Ensure output matches domain label dimensions
+        if d_out.shape[0] != d_adv.shape[0]:
+            raise ValueError(f"Batch size mismatch: classifier output {d_out.shape[0]} != domain labels {d_adv.shape[0]}")
+    
+        d_out = d_out.view(-1, self.args.latent_domain_num)
+        d_adv = d_adv.to(device).long()
+    
+        # =============== [5] Loss Calculation ===============
+        loss = F.cross_entropy(
+            d_out, 
+            d_adv.clamp(0, self.args.latent_domain_num - 1)
+        ) * getattr(self, 'lambda_dis', 1.0)
+    
+        # =============== [6] Optimization ===============
         opt.zero_grad()
         loss.backward()
         opt.step()
