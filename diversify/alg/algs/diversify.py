@@ -103,6 +103,12 @@ class Diversify(Algorithm):
         """
         device = next(self.parameters()).device
         adv_data, y_adv, d_adv = inputs
+        
+        # ===== ADD DEBUG PRINTS HERE =====
+        print("\n[DEBUG] Graph Structure Analysis:")
+        print("Unique graphs:", adv_data.batch.unique().shape[0])  # Should match your batch_size (32)
+        print("Nodes per graph:", len(adv_data.batch) // adv_data.batch.unique().shape[0])  # Should be 8 for EMG data
+        print("First 10 batch assignments:", adv_data.batch[:10])  # Should look like [0,0,0,0,0,0,0,0, 1,1] for 8 nodes/graph
     
         # =============== [1] Input Validation ===============
         print(f"[DEBUG] Input shapes - adv_data: {adv_data.shape if hasattr(adv_data, 'shape') else adv_data}, "
