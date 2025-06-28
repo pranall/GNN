@@ -57,7 +57,10 @@ def main(args):
 
     batch_item   = next(iter(train_loader))
     sample_batch = batch_item[0] if isinstance(batch_item, tuple) else batch_item
-
+    # New assert:
+    assert sample_batch.edge_index.size(1) > 0, "No edges in graph! Graph builder may be misconfigured."
+    print(f"\n=== GRAPH SANITY CHECK ===")
+    print(f"Edges in first batch: {sample_batch.edge_index.shape[1]}")
     print(f"\n=== GRAPH SANITY CHECK ===")
     print(f"Edges in first batch: {sample_batch.edge_index.shape[1]}")
     print(f"Edge examples:\n{sample_batch.edge_index[:, :5].t()}")
