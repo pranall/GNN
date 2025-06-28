@@ -2,63 +2,93 @@ import torch
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 import matplotlib.pyplot as plt
-from ..gnn.temporal_gcn import TemporalGCN
-from ..datautil.graph_utils import build_graph
-from ..utils.util import check_system
+from sklearn.manifold import TSNE
+from collections import defaultdict
 
 def evaluate_model(model, test_loader, device="cuda"):
-    """
-    Evaluate the GNN model on test data.
-    Args:
-        model: Trained GNN model (e.g., TemporalGCN).
-        test_loader: DataLoader for test data.
-        device: Device to run evaluation on.
-    Returns:
-        Dict with metrics: accuracy, F1, confusion matrix.
-    """
     model.eval()
     y_true, y_pred = [], []
+    embeddings = defaultdict(list)
     
     with torch.no_grad():
         for data in test_loader:
             graphs, labels = data
             graphs = graphs.to(device)
             labels = labels.to(device)
-            outputs = model(graphs)
+            outputs, emb = model(graphs, return_embeddings=True)
             preds = torch.argmax(outputs, dim=1)
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(preds.cpu().numpy())
+            embeddings["features"].extend(emb.cpu().numpy())
+            embeddings["labels"].extend(labels.cpu().numpy())
     
     metrics = {
         "accuracy": accuracy_score(y_true, y_pred),
         "f1": f1_score(y_true, y_pred, average="weighted"),
         "confusion_matrix": confusion_matrix(y_true, y_pred),
+        "embeddings": embeddings
     }
     return metrics
 
 def plot_metrics(metrics, save_path="metrics_plot.png"):
-    """Plot accuracy/F1 and confusion matrix."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
     
-    # Accuracy/F1 plot
     ax1.bar(["Accuracy", "F1"], [metrics["accuracy"], metrics["f1"]])
     ax1.set_ylim(0, 1)
     ax1.set_title("Model Performance")
     
-    # Confusion matrix
     cm = metrics["confusion_matrix"]
     ax2.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
     ax2.set_title("Confusion Matrix")
+    
+    tsne = TSNE(n_components=2, random_state=42)
+    X_tsne = tsne.fit_transform(np.array(metrics["embeddings"]["features"]))
+    for label in np.unique(metrics["embeddings"]["labels"]):
+        idx = np.where(np.array(metrics["embeddings"]["labels"]) == label)
+        ax3.scatter(X_tsne[idx, 0], X_tsne[idx, 1], label=f"Class {label}")
+    ax3.set_title("t-SNE Embeddings")
+    ax3.legend()
+    
+    plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
 
+def domain_adaptation_metrics(source_metrics, target_metrics):
+    h_div = np.linalg.norm(
+        np.mean(source_metrics["embeddings"]["features"], axis=0) - 
+        np.mean(target_metrics["embeddings"]["features"], axis=0)
+    )
+    
+    combined_embeddings = np.vstack([
+        source_metrics["embeddings"]["features"],
+        target_metrics["embeddings"]["features"]
+    ])
+    labels = np.hstack([
+        np.zeros(len(source_metrics["embeddings"]["features"])),
+        np.ones(len(target_metrics["embeddings"]["features"]))
+    ])
+    
+    tsne = TSNE(n_components=2, random_state=42)
+    X_tsne = tsne.fit_transform(combined_embeddings)
+    
+    plt.figure(figsize=(8, 6))
+    plt.scatter(X_tsne[labels == 0, 0], X_tsne[labels == 0, 1], label="Source")
+    plt.scatter(X_tsne[labels == 1, 0], X_tsne[labels == 1, 1], label="Target")
+    plt.title("Domain Shift Visualization")
+    plt.legend()
+    plt.savefig("domain_shift.png")
+    plt.close()
+    
+    return {
+        "h_divergence": h_div,
+        "domain_shift_plot": "domain_shift.png"
+    }
+
 if __name__ == "__main__":
-    # Example usage (adjust paths as needed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TemporalGCN().to(device)
     model.load_state_dict(torch.load("../models/emg_gnn.pth"))
     
-    # Replace with your test DataLoader
     test_loader = None  # TODO: Load your test data
     metrics = evaluate_model(model, test_loader, device)
     print(f"Accuracy: {metrics['accuracy']:.2%}, F1: {metrics['f1']:.2%}")
