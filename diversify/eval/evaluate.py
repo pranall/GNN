@@ -1,153 +1,102 @@
 import torch
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+from sklearn.metrics import (accuracy_score, f1_score, 
+                           confusion_matrix, silhouette_score)
+from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from collections import defaultdict
 
-def evaluate_model(model, test_loader, device="cuda"):
-    model.eval()
-    y_true, y_pred = [], []
-    embeddings = defaultdict(list)
+def calculate_h_divergence(source_feats, target_feats):
+    """Robust H-Divergence calculation"""
+    X = np.vstack([source_feats, target_feats])
+    y = np.hstack([np.zeros(len(source_feats)), 
+                  np.ones(len(target_feats))])
     
-    with torch.no_grad():
-        for data in test_loader:
-            graphs, labels = data
-            graphs = graphs.to(device)
-            labels = labels.to(device)
-            outputs, emb = model(graphs, return_embeddings=True)
-            preds = torch.argmax(outputs, dim=1)
-            y_true.extend(labels.cpu().numpy())
-            y_pred.extend(preds.cpu().numpy())
-            embeddings["features"].extend(emb.cpu().numpy())
-            embeddings["labels"].extend(labels.cpu().numpy())
-    
-    metrics = {
-        "accuracy": accuracy_score(y_true, y_pred),
-        "f1": f1_score(y_true, y_pred, average="weighted"),
-        "confusion_matrix": confusion_matrix(y_true, y_pred),
-        "embeddings": embeddings
-    }
-    return metrics
+    clf = RandomForestClassifier(n_estimators=50, max_depth=5)
+    clf.fit(X, y)
+    probas = clf.predict_proba(X)[:, 1]
+    error = np.mean(np.where(y == 0, probas, 1 - probas))
+    return max(0, 2 * (1 - error))  # Ensure non-negative
 
-def plot_metrics(metrics, save_path="metrics_plot.png"):
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
-    
-    ax1.bar(["Accuracy", "F1"], [metrics["accuracy"], metrics["f1"]])
-    ax1.set_ylim(0, 1)
-    ax1.set_title("Model Performance")
-    
-    cm = metrics["confusion_matrix"]
-    ax2.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
-    ax2.set_title("Confusion Matrix")
-    
-    tsne = TSNE(n_components=2, random_state=42)
-    X_tsne = tsne.fit_transform(np.array(metrics["embeddings"]["features"]))
-    for label in np.unique(metrics["embeddings"]["labels"]):
-        idx = np.where(np.array(metrics["embeddings"]["labels"]) == label)
-        ax3.scatter(X_tsne[idx, 0], X_tsne[idx, 1], label=f"Class {label}")
-    ax3.set_title("t-SNE Embeddings")
-    ax3.legend()
-    
-    plt.tight_layout()
-    plt.savefig(save_path)
-    plt.close()
-
-def domain_adaptation_metrics(source_metrics, target_metrics):
-    h_div = np.linalg.norm(
-        np.mean(source_metrics["embeddings"]["features"], axis=0) - 
-        np.mean(target_metrics["embeddings"]["features"], axis=0)
-    )
-    
-    combined_embeddings = np.vstack([
-        source_metrics["embeddings"]["features"],
-        target_metrics["embeddings"]["features"]
-    ])
-    labels = np.hstack([
-        np.zeros(len(source_metrics["embeddings"]["features"])),
-        np.ones(len(target_metrics["embeddings"]["features"]))
-    ])
-    
-    tsne = TSNE(n_components=2, random_state=42)
-    X_tsne = tsne.fit_transform(combined_embeddings)
-    
-    plt.figure(figsize=(8, 6))
-    plt.scatter(X_tsne[labels == 0, 0], X_tsne[labels == 0, 1], label="Source")
-    plt.scatter(X_tsne[labels == 1, 0], X_tsne[labels == 1, 1], label="Target")
-    plt.title("Domain Shift Visualization")
-    plt.legend()
-    plt.savefig("domain_shift.png")
-    plt.close()
-
-    def evaluate_domain_adaptation(model, source_loader, target_loader, device="cuda"):
+def evaluate_model(model, loaders, device="cuda"):
     """
-    Comprehensive evaluation for domain adaptation scenarios
+    Unified evaluation for both source and target domains
     Returns:
         {
-            'classification': {accuracy, f1, ...},
-            'domain': {
+            'source': {accuracy, f1, embeddings...},
+            'target': {...},
+            'domain_metrics': {
                 'h_divergence': float,
-                'silhouette': float,
-                'confusion': ndarray
+                'silhouette': float
             }
         }
     """
     model.eval()
-    source_features, source_labels = [], []
-    target_features, target_labels = [], []
+    results = {}
     
     with torch.no_grad():
-        # Process source domain
-        for data in source_loader:
-            graphs, labels = data
-            graphs = graphs.to(device)
-            outputs = model(graphs)
-            source_features.append(outputs.cpu())
-            source_labels.append(labels.cpu())
-        
-        # Process target domain
-        for data in target_loader:
-            graphs, labels = data
-            graphs = graphs.to(device)
-            outputs = model(graphs)
-            target_features.append(outputs.cpu())
-            target_labels.append(labels.cpu())
+        for domain in ['source', 'target']:
+            features, labels = [], []
+            for data in loaders[domain]:
+                graphs, y = data
+                graphs = graphs.to(device)
+                outputs, emb = model(graphs, return_embeddings=True)
+                features.append(emb.cpu().numpy())
+                labels.append(y.cpu().numpy())
+            
+            features = np.concatenate(features)
+            labels = np.concatenate(labels)
+            preds = model.predict(torch.from_numpy(features).to(device)).cpu().numpy()
+            
+            results[domain] = {
+                'accuracy': accuracy_score(labels, preds),
+                'f1': f1_score(labels, preds, average='weighted'),
+                'embeddings': features,
+                'labels': labels
+            }
     
-    # Convert to tensors
-    source_features = torch.cat(source_features)
-    source_labels = torch.cat(source_labels)
-    target_features = torch.cat(target_features)
-    target_labels = torch.cat(target_labels)
+    # Domain adaptation metrics
+    combined_features = np.vstack([results['source']['embeddings'], 
+                                 results['target']['embeddings']])
+    combined_labels = np.hstack([np.zeros(len(results['source']['embeddings'])), 
+                               np.ones(len(results['target']['embeddings']))])
     
-    # Calculate metrics
-    results = {
-        'classification': calculate_metrics(source_labels, model.predict(source_features)),
-        'domain': {
-            'h_divergence': calculate_h_divergence(source_features, target_features),
-            'silhouette': calculate_silhouette(
-                torch.cat([source_features, target_features]),
-                torch.cat([source_labels, target_labels])
-            ),
-            'confusion': confusion_matrix(source_labels, target_labels)
-        }
+    results['domain_metrics'] = {
+        'h_divergence': calculate_h_divergence(
+            results['source']['embeddings'],
+            results['target']['embeddings']
+        ),
+        'silhouette': silhouette_score(combined_features, combined_labels)
     }
     
     return results
 
-
-
+def visualize_results(results, save_dir="results"):
+    """Enhanced visualization with domain metrics"""
+    os.makedirs(save_dir, exist_ok=True)
     
-    return {
-        "h_divergence": h_div,
-        "domain_shift_plot": "domain_shift.png"
-    }
-
-if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = TemporalGCN().to(device)
-    model.load_state_dict(torch.load("../models/emg_gnn.pth"))
+    # 1. Performance metrics
+    fig, ax = plt.subplots(1, 2, figsize=(15, 5))
+    metrics = ['accuracy', 'f1']
+    ax[0].bar(['Source', 'Target'], 
+              [results['source']['accuracy'], results['target']['accuracy']])
+    ax[0].set_title('Accuracy Comparison')
     
-    test_loader = None  # TODO: Load your test data
-    metrics = evaluate_model(model, test_loader, device)
-    print(f"Accuracy: {metrics['accuracy']:.2%}, F1: {metrics['f1']:.2%}")
-    plot_metrics(metrics)
+    ax[1].bar(['H-Divergence', 'Silhouette'],
+              [results['domain_metrics']['h_divergence'],
+              results['domain_metrics']['silhouette']])
+    ax[1].set_title('Domain Metrics')
+    plt.savefig(f"{save_dir}/metrics.png")
+    plt.close()
+    
+    # 2. t-SNE plots
+    tsne = TSNE(n_components=2, random_state=42)
+    for domain in ['source', 'target']:
+        X_tsne = tsne.fit_transform(results[domain]['embeddings'])
+        plt.scatter(X_tsne[:,0], X_tsne[:,1], 
+                   c=results[domain]['labels'], 
+                   label=domain, alpha=0.6)
+    plt.legend()
+    plt.savefig(f"{save_dir}/tsne.png")
+    plt.close()
