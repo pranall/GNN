@@ -7,6 +7,8 @@ import argparse
 import torchvision
 import PIL
 from collections import defaultdict
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def disable_inplace_relu(model):
     """Disable inplace operations in ReLU layers for compatibility"""
@@ -310,8 +312,6 @@ def plot_domain_metrics(metrics_dict, save_path=None):
     """
     Extended plotting for domain adaptation metrics
     """
-    import matplotlib.pyplot as plt
-    import seaborn as sns
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
@@ -322,7 +322,25 @@ def plot_domain_metrics(metrics_dict, save_path=None):
         ax=ax1
     )
     ax1.set_title('Classification Metrics')
-    
+
+def init_gnn_metrics_tracking():
+    return {
+        'epoch': [],
+        'train_loss': [],
+        'val_loss': [],
+        'h_divergence': [],
+        'silhouette': []
+    }
+def update_metrics_tracking(metrics, epoch, train_loss, val_loss, h_div=None, silhouette=None):
+    metrics['epoch'].append(epoch)
+    metrics['train_loss'].append(train_loss)
+    metrics['val_loss'].append(val_loss)
+    if h_div is not None:
+        metrics['h_divergence'].append(h_div)
+    if silhouette is not None:
+        metrics['silhouette'].append(silhouette)
+    return metrics
+
     # Domain metrics
     if 'domain' in metrics_dict:
         sns.heatmap(
