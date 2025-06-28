@@ -1,41 +1,35 @@
-
 import torch
 import numpy as np
-from scipy.spatial.distance import pdist, squareform
-from typing import Tuple, Union, List, Optional
-import itertools
-from torch_geometric.nn import GCNConv
+from typing import Union, List
+from torch_geometric.data import Data
 
 class GraphBuilder:
     """
-    Builds dynamic correlation graphs from EMG time-series data with PyTorch support.
-    Now handles 3D inputs (batch, time_steps, features) by processing each sample individually.
-    Features:
-    - Multiple similarity metrics (correlation, covariance, Euclidean distance)
-    - Adaptive thresholding based on data distribution
-    - Efficient star topology for small sequences
+    Optimized graph builder for EMG data that creates sensor-level graphs.
+    Nodes represent EMG sensors (8 nodes), edges represent functional connections.
+    
+    Key Features:
+    - EMG-specific correlation thresholds
+    - Guaranteed edge creation
     - Batch processing support
-    - Comprehensive validation checks
+    - Comprehensive validation
     
     Args:
         method: Similarity metric ('correlation', 'covariance', 'euclidean')
-        threshold_type: 'fixed' or 'adaptive' (median-based)
-        default_threshold: Default threshold value for fixed method
-        adaptive_factor: Multiplier for adaptive threshold calculation
-        fully_connected_fallback: Use fully connected graph when no edges found
+        threshold_type: 'fixed' or 'adaptive'
+        default_threshold: For fixed threshold (0.3-0.7 works well for EMG)
+        adaptive_factor: Multiplier for adaptive threshold (1.2-2.0 recommended)
     """
     
     def __init__(self,
                  method: str = 'correlation',
                  threshold_type: str = 'adaptive',
-                 default_threshold: float = 0.3,
-                 adaptive_factor: float = 1.5,
-                 fully_connected_fallback: bool = True):
+                 default_threshold: float = 0.5,
+                 adaptive_factor: float = 1.5):
         self.method = method
         self.threshold_type = threshold_type
         self.default_threshold = default_threshold
         self.adaptive_factor = adaptive_factor
-        self.fully_connected_fallback = fully_connected_fallback
         
         if method not in {'correlation', 'covariance', 'euclidean'}:
             raise ValueError(f"Invalid method '{method}'. Choose from 'correlation', 'covariance', or 'euclidean'")
@@ -45,187 +39,127 @@ class GraphBuilder:
 
     def build_graph(self, feature_sequence: Union[torch.Tensor, np.ndarray]) -> torch.LongTensor:
         """
-        Build temporal graph from feature sequence (post-convolution)
+        Build graph from EMG data.
         
         Args:
-            feature_sequence: Feature tensor of shape (batch, time_steps, features) or (time_steps, features)
+            feature_sequence: (time_steps, 8) or (batch, time_steps, 8)
             
         Returns:
-            edge_index: Tensor of shape [2, num_edges]
+            edge_index: Shape [2, num_edges] with sensor connections
         """
-        """Handle both tensor and numpy inputs"""
-        # Convert numpy arrays to tensors
+        # Convert and validate input
         if isinstance(feature_sequence, np.ndarray):
             feature_sequence = torch.from_numpy(feature_sequence).float()
-        # Handle 3D input by processing first sample only
+            
         if feature_sequence.ndim == 3:
-            batch_size, T, F = feature_sequence.shape
-            if batch_size > 1:
-                print(f"⚠️ GraphBuilder received batch size {batch_size}, using first sample only")
-            return self._build_single_graph(feature_sequence[0])
+            feature_sequence = feature_sequence[0]  # Use first sample if batched
             
-        # Handle 2D input
-        elif feature_sequence.ndim == 2:
-            return self._build_single_graph(feature_sequence)
+        if feature_sequence.shape[1] != 8:
+            raise ValueError(f"EMG data must have 8 sensors, got {feature_sequence.shape[1]}")
             
-        else:
-            raise ValueError(f"Input must be 2D or 3D tensor, got shape {feature_sequence.shape}")
+        # Build the graph
+        edge_index = self._build_sensor_graph(feature_sequence.t())  # [8, time_steps]
+        
+        # Ensure we have edges
+        if edge_index.shape[1] == 0:
+            edge_index = self._create_default_edges(8, feature_sequence.device)
+            
+        return edge_index
 
-    def _build_single_graph(self, feature_sequence: torch.Tensor) -> torch.LongTensor:
-        """Build graph for a single sample (2D tensor)"""
-        # Validate input
-        if not isinstance(feature_sequence, torch.Tensor):
-            raise TypeError(f"Input must be torch.Tensor, got {type(feature_sequence)}")
-            
-        if feature_sequence.ndim != 2:
-            raise ValueError(f"Input must be 2D (time_steps, features), got shape {feature_sequence.shape}")
-            
-        T, F = feature_sequence.shape
-        device = feature_sequence.device
+    def _build_sensor_graph(self, sensor_data: torch.Tensor) -> torch.LongTensor:
+        """Core graph construction between sensors"""
+        # Compute similarity matrix [8, 8]
+        sim_matrix = self._compute_similarity(sensor_data)
         
-        # Handle small sequences with star topology
-        if T < 5:
-            return self._create_star_topology(T).to(device)
-
-        # Compute similarity matrix between TIME STEPS
-        similarity_matrix = self._compute_similarity(feature_sequence)
+        # Get adaptive threshold
+        threshold = self._determine_threshold(sim_matrix)
         
-        # Determine threshold
-        threshold = self._determine_threshold(similarity_matrix)
-        
-        # Build edges using TIME STEPS as nodes
-        return self._create_edges(similarity_matrix, threshold, T, device)
+        # Create edges
+        return self._create_edges(sim_matrix, threshold, sensor_data.device)
 
     def _compute_similarity(self, data: torch.Tensor) -> torch.Tensor:
-        """Compute similarity between time steps (temporal correlation) using PyTorch"""
-        T, F = data.shape
-        
+        """Compute sensor similarity matrix"""
         if self.method == 'correlation':
-            # Compute row-wise (time steps) std
-            stds = torch.std(data, dim=1)
-            constant_mask = stds < 1e-8
-            if torch.any(constant_mask):
-                # Add small noise to constant time steps
-                noise = torch.randn_like(data) * 1e-8
-                data = data + noise * constant_mask.unsqueeze(1)
-            
-            # Compute time-step correlation
-            centered = data - torch.mean(data, dim=1, keepdim=True)
-            cov_matrix = torch.mm(centered, centered.t()) / (F - 1)
-            std_products = torch.outer(stds, stds)
-            std_products[std_products < 1e-10] = 1e-10
-            corr = cov_matrix / std_products
-            return torch.clamp(corr, -1.0, 1.0)
-            
+            return self._correlation_matrix(data)
         elif self.method == 'covariance':
-            centered = data - torch.mean(data, dim=1, keepdim=True)
-            cov = torch.mm(centered, centered.t()) / (F - 1)
-            return torch.nan_to_num(cov, nan=0.0)
-            
-        elif self.method == 'euclidean':
-            dist_matrix = torch.cdist(data, data, p=2)
-            max_dist = torch.max(dist_matrix)
-            if max_dist < 1e-8:
-                return torch.ones_like(dist_matrix)
-            similarity = 1 - (dist_matrix / max_dist)
-            return torch.clamp(similarity, -1.0, 1.0)
+            return self._covariance_matrix(data)
+        else:
+            return self._euclidean_similarity(data)
+
+    def _correlation_matrix(self, data: torch.Tensor) -> torch.Tensor:
+        """Pearson correlation between sensors"""
+        centered = data - data.mean(dim=1, keepdim=True)
+        cov = centered @ centered.t() / (data.shape[1] - 1)
+        stds = torch.std(data, dim=1, keepdim=True)
+        return cov / (stds @ stds.t()).clamp(min=1e-8)
+
+    def _covariance_matrix(self, data: torch.Tensor) -> torch.Tensor:
+        """Covariance between sensors"""
+        centered = data - data.mean(dim=1, keepdim=True)
+        return (centered @ centered.t()) / (data.shape[1] - 1)
+
+    def _euclidean_similarity(self, data: torch.Tensor) -> torch.Tensor:
+        """Convert distances to similarities"""
+        dists = torch.cdist(data, data)
+        return 1 / (1 + dists)
 
     def _determine_threshold(self, matrix: torch.Tensor) -> float:
-        """Calculate appropriate threshold based on type"""
+        """EMG-optimized threshold calculation"""
         if self.threshold_type == 'fixed':
             return self.default_threshold
-        
-        # Adaptive threshold based on median absolute similarity
-        abs_matrix = torch.abs(matrix)
-        # Ignore self-connections
-        abs_matrix.fill_diagonal_(0)
-        
-        # Flatten and remove zeros
-        flat_matrix = abs_matrix.flatten()
-        non_zero = flat_matrix[flat_matrix > 0]
-        
-        if non_zero.numel() == 0:
-            return 0.0
             
-        median_val = torch.median(non_zero).item()
-        return median_val * self.adaptive_factor
+        # Focus on positive correlations for EMG
+        pos_corrs = matrix.clamp(min=0).flatten()
+        pos_corrs = pos_corrs[pos_corrs > 0.1]  # Filter weak connections
+        
+        if len(pos_corrs) == 0:
+            return 0.4  # Fallback threshold
+            
+        # Use lower quartile for stable connections
+        return torch.quantile(pos_corrs, 0.25).item() * self.adaptive_factor
 
-    def _create_edges(self, matrix: torch.Tensor, threshold: float, 
-                     num_nodes: int, device: torch.device) -> torch.LongTensor:
-        """Create edge connections between TIME STEPS (nodes)"""
-        # Vectorized approach for better performance
-        indices = torch.triu_indices(num_nodes, num_nodes, 1, device=device)
-        i, j = indices[0], indices[1]
-        similarities = matrix[i, j]
+    def _create_edges(self, matrix: torch.Tensor, 
+                     threshold: float, device: torch.device) -> torch.LongTensor:
+        """Create edges between sensors"""
+        n = matrix.shape[0]
+        rows, cols = torch.where(matrix.abs() > threshold)
         
-        # Find edges above threshold
-        mask = torch.abs(similarities) > threshold
-        valid_i = i[mask]
-        valid_j = j[mask]
+        # Remove self-loops and duplicates
+        mask = (rows < cols)
+        rows, cols = rows[mask], cols[mask]
         
-        # Create bidirectional edges
-        if valid_i.numel() > 0:
-            edges = torch.stack([
-                torch.cat([valid_i, valid_j]),
-                torch.cat([valid_j, valid_i])
-            ], dim=0)
-        else:
-            edges = torch.empty((2, 0), dtype=torch.long, device=device)
+        # Bidirectional edges
+        edge_index = torch.stack([
+            torch.cat([rows, cols]),
+            torch.cat([cols, rows])
+        ], dim=0).to(device)
         
-        # Handle no-edge case
-        if edges.numel() == 0 and self.fully_connected_fallback:
-            return self._create_fully_connected(num_nodes).to(device)
-        
-        # Validate indices
-        if edges.numel() > 0:
-            if torch.any(edges >= num_nodes) or torch.any(edges < 0):
-                edges = torch.clamp(edges, 0, num_nodes-1)
-        
-        return edges
+        return edge_index.unique(dim=1)  # Remove any duplicates
 
-    def _create_star_topology(self, num_nodes: int) -> torch.LongTensor:
-        """Create star topology for small sequences (more efficient than fully connected)"""
-        if num_nodes < 2:
-            return torch.empty((2, 0), dtype=torch.long)
-        
-        center = num_nodes // 2
+    def _create_default_edges(self, num_sensors: int, device: torch.device) -> torch.LongTensor:
+        """Fallback topology when no edges meet threshold"""
+        # Create a ring graph as reasonable default
         edges = []
-        for i in range(num_nodes):
-            if i != center:
-                edges.append([center, i])
-                edges.append([i, center])
-        return torch.tensor(edges, dtype=torch.long).t().contiguous()
-
-    def _create_fully_connected(self, num_nodes: int) -> torch.LongTensor:
-        """Create fully connected graph between TIME STEPS"""
-        # Create all possible edges except self-loops
-        rows, cols = [], []
-        for i in range(num_nodes):
-            for j in range(num_nodes):
-                if i != j:
-                    rows.append(i)
-                    cols.append(j)
-        
-        return torch.tensor([rows, cols], dtype=torch.long)
+        for i in range(num_sensors):
+            j = (i + 1) % num_sensors
+            edges.append([i, j])
+            edges.append([j, i])
+        return torch.tensor(edges, dtype=torch.long, device=device).t()
 
     def build_graph_for_batch(self, batch_data: torch.Tensor) -> List[torch.LongTensor]:
-        """
-        Build graphs for a batch of EMG samples.
-        
-        Args:
-            batch_data: EMG time-series of shape (batch_size, time_steps, channels)
-            
-        Returns:
-            edge_indices: List of edge_index tensors for each sample
-        """
-        if batch_data.ndim != 3:
-            raise ValueError(f"Batch input must be 3D (batch, time, channels), got shape {batch_data.shape}")
-            
-        edge_indices = []
-        
-        for i in range(batch_data.size(0)):
-            sample = batch_data[i]
-            edge_index = self._build_single_graph(sample)
-            edge_indices.append(edge_index)
-            
-        return edge_indices
+        """Process batch of EMG samples"""
+        return [self.build_graph(sample) for sample in batch_data]
+
+
+# Quick test function
+def test_graph_builder():
+    """Sanity check the graph builder"""
+    builder = GraphBuilder()
+    emg_data = torch.randn(200, 8)  # [time_steps, sensors]
+    
+    edge_index = builder.build_graph(emg_data)
+    print(f"Created graph with {edge_index.shape[1]} edges")
+    print("First 5 edges:", edge_index[:, :5].t())
+
+if __name__ == '__main__':
+    test_graph_builder()
