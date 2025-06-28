@@ -3,7 +3,7 @@ model:
   type: "TemporalGCN"
   input_dim: 8              # EMG channels (Myo Armband)
   hidden_dim: 64
-  num_classes: 5            # Adjust to your gesture classes
+  output_dim: 128           # Added to match your code
   dropout: 0.3
   num_layers: 2
 
@@ -12,9 +12,9 @@ training:
   epochs: 100
   batch_size: 32
   lr: 0.001
-  optimizer: "adam"
-  weight_decay: 1e-4
-  use_cuda: True            # Auto-detects GPU in Colab
+  optimizer: "adamw"        # Changed to match your train.py
+  weight_decay: 0.0005      # Matches train.py value
+  use_cuda: True            # Auto-detects GPU
 
 # Data (EMG-specific)
 data:
@@ -25,17 +25,14 @@ data:
   normalize: True           # Normalize EMG signals
 
 # Evaluation
-eval:
-  test_split: 0.2
-  metrics: ["accuracy", "f1", "confusion_matrix"]
-
 evaluation:
+  frequency: 10             # Epochs between domain metric calculations
   metrics:
     standard: ["accuracy", "f1"]
     domain_adaptation:
       - "h_divergence"
       - "silhouette"
-      - "confusion_matrix"
   thresholds:
-    h_divergence_warning: 0.5  # Alert if > 0.5
-    silhouette_warning: 0.2     # Alert if < 0.2
+    h_divergence_warning: 0.5
+    silhouette_warning: 0.2
+    min_accuracy: 0.7       # For model saving
