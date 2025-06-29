@@ -83,6 +83,8 @@ class GraphBuilder:
         T, F = feature_sequence.shape
         device = feature_sequence.device
         
+        return self._create_fully_connected(T).to(device)
+
         # Handle small sequences with star topology
         if T < 5:
             return self._create_star_topology(T).to(device)
