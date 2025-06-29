@@ -3,15 +3,10 @@ import numpy as np
 import torch
 from datautil.graph_utils import convert_to_graph
 
-__all__ = [
-    'StandardScaler',
-    'act_train',
-    'act_to_graph_transform', 
-    'loaddata_from_numpy'
-]
-
 class StandardScaler:
+    """Normalize sensor data channel-wise"""
     def __call__(self, tensor):
+        # tensor shape: [channels, timesteps, features]
         for c in range(tensor.size(0)):
             for f in range(tensor.size(2)):
                 channel_data = tensor[c, :, f]
@@ -24,6 +19,7 @@ class StandardScaler:
         return tensor
 
 def act_train():
+    """Original transformation for activity data"""
     return transforms.Compose([
         transforms.ToTensor(),
         StandardScaler(),
@@ -31,13 +27,19 @@ def act_train():
     ])
 
 def act_to_graph_transform(args):
+    """Transformation pipeline for GNN models"""
     def _to_graph(x):
+        # x is [channels, timesteps] or [8, 200]
         if isinstance(x, torch.Tensor):
+            # add batch/feature dimension if needed
             if x.dim() == 3:
+                # [channels, timesteps, features] → [channels, timesteps]
                 x = x[..., 0]
+            # Ensure float tensor
             x = x.float()
+        # Convert to graph
         data = convert_to_graph(
-            x.unsqueeze(-1),
+            x.unsqueeze(-1),  # convert [8, 200] to [8, 200, 1] for compatibility
             adjacency_strategy=getattr(args, 'graph_method', 'correlation'),
             threshold=getattr(args, 'graph_threshold', 0.5),
             top_k=getattr(args, 'graph_top_k', 3)
@@ -48,8 +50,9 @@ def act_to_graph_transform(args):
         transforms.ToTensor(),
         StandardScaler(),
         lambda x: x.view(args.input_shape[0], args.input_shape[2]),
-        _to_graph
+        _to_graph  # <------ THIS is what actually creates the PyG Data object!
     ])
+
 
 def loaddata_from_numpy(dataset='dsads', task='cross_people', root_dir='./data/act/'):
     if dataset == 'pamap' and task == 'cross_people':
