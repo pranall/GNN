@@ -37,6 +37,8 @@ def act_to_graph_transform(args):
                 x = x[..., 0]
             # Ensure float tensor
             x = x.float()
+            if x.shape == (8, 200):
+                x = x.transpose(1, 0)  # Now (200, 8)
         # Convert to graph
         data = convert_to_graph(
             x.unsqueeze(-1),  # convert [8, 200] to [8, 200, 1] for compatibility
