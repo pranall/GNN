@@ -9,15 +9,17 @@ import matplotlib.pyplot as plt
 from alg import alg, modelopera
 from utils.util import set_random_seed, get_args, print_args, print_environ
 from utils.monitor import TrainingMonitor
-from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data
 from gnn.temporal_gcn import TemporalGCN
 from eval.evaluate import evaluate_model, visualize_results
 import networkx as nx
-from datautil.actdata.cross_people import load_datasets
+from datautil.actdata import cross_people  # Import module first
+from datautil import getdataloader_single  # Import module first
+from datautil.getdataloader_single import get_act_dataloader
 
-tr, val, targetdata = load_datasets(args)
+tr, val, targetdata = cross_people.load_datasets(args)  # Note the module prefix
+train_loader = getdataloader_single.get_act_dataloader(args, tr, val, targetdata)
 
 
 def unpack_batch(batch_item):
