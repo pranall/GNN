@@ -49,7 +49,7 @@ class ActList(mydataset):
         # Format data as tensors
         # Preserve both dimension expansion approaches
         self.x = self.x[:, :, np.newaxis, :]  # From first version
-        self.transform = None  # From first version
+        #self.transform = None  # From first version
         self.x = torch.tensor(self.x).float()
         
         # Handle pseudo-labels
