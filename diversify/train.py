@@ -115,6 +115,7 @@ def main(args):
         demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
         with torch.no_grad():
             demo_data = Data(x=demo_x, edge_index=demo_e)
+            print("GNN SMOKE TEST: demo_data.x.shape", demo_data.x.shape)  # Add this
             demo_out = algorithm.featurizer(demo_data)
         print("✅ Quick GNN smoke test output shape:", demo_out.shape)
 
