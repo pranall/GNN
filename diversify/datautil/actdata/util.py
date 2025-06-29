@@ -26,29 +26,31 @@ def act_train():
         lambda x: torch.tensor(x, dtype=torch.float32)
     ])
 
-def _to_graph(x):
-    print("ORIGINAL x.shape:", x.shape)
-    if isinstance(x, torch.Tensor):
-        if x.dim() == 3 and x.shape == (8, 1, 200):
-            x = x.squeeze(1).transpose(1, 0)
-            print("AFTER FIX (8,1,200) -> (200,8):", x.shape)
-        elif x.dim() == 3:
-            x = x[..., 0]
-            print("AFTER ...0:", x.shape)
-        x = x.float()
-        if x.shape == (8, 200):
-            x = x.transpose(1, 0)
-            print("AFTER (8,200) -> (200,8):", x.shape)
-        elif x.shape == (200, 8):
-            print("ALREADY CORRECT:", x.shape)
-    # Convert to graph
-    data = convert_to_graph(
-        x.unsqueeze(-1),  # convert [200, 8] to [200, 8, 1] for compatibility
-        adjacency_strategy=getattr(args, 'graph_method', 'correlation'),
-        threshold=getattr(args, 'graph_threshold', 0.5),
-        top_k=getattr(args, 'graph_top_k', 3)
-    )
-    return data
+def act_to_graph_transform(args):
+    """Transformation pipeline for GNN models"""
+    def _to_graph(x):
+        print("ORIGINAL x.shape:", x.shape)
+        if isinstance(x, torch.Tensor):
+            if x.dim() == 3 and x.shape == (8, 1, 200):
+                x = x.squeeze(1).transpose(1, 0)
+                print("AFTER FIX (8,1,200) -> (200,8):", x.shape)
+            elif x.dim() == 3:
+                x = x[..., 0]
+                print("AFTER ...0:", x.shape)
+            x = x.float()
+            if x.shape == (8, 200):
+                x = x.transpose(1, 0)
+                print("AFTER (8,200) -> (200,8):", x.shape)
+            elif x.shape == (200, 8):
+                print("ALREADY CORRECT:", x.shape)
+        # Convert to graph
+        data = convert_to_graph(
+            x.unsqueeze(-1),  # convert [200, 8] to [200, 8, 1] for compatibility
+            adjacency_strategy=getattr(args, 'graph_method', 'correlation'),
+            threshold=getattr(args, 'graph_threshold', 0.5),
+            top_k=getattr(args, 'graph_top_k', 3)
+        )
+        return data
 
     return transforms.Compose([
         transforms.ToTensor(),
@@ -56,7 +58,6 @@ def _to_graph(x):
         lambda x: x.view(args.input_shape[0], args.input_shape[2]),
         _to_graph  # <------ THIS is what actually creates the PyG Data object!
     ])
-
 
 def loaddata_from_numpy(dataset='dsads', task='cross_people', root_dir='./data/act/'):
     if dataset == 'pamap' and task == 'cross_people':
