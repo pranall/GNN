@@ -1,3 +1,4 @@
+# Replace all imports with:
 import os
 import time
 import yaml
@@ -6,17 +7,20 @@ import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from alg import alg, modelopera
-from utils.util import set_random_seed, get_args, print_args, print_environ
-from utils.monitor import TrainingMonitor
-from torch_geometric.utils import to_networkx
-from torch_geometric.data import Data
-from gnn.temporal_gcn import TemporalGCN
-from eval.evaluate import evaluate_model, visualize_results
 import networkx as nx
-from datautil.actdata import cross_people  # Import module first
-from datautil import getdataloader_single  # Import module first
-from datautil.getdataloader_single import get_act_dataloader
+
+# Absolute imports
+from diversify.alg import Diversify
+from diversify.utils.util import set_random_seed, get_args, print_args, print_environ
+from diversify.utils.monitor import TrainingMonitor
+from diversify.gnn.temporal_gcn import TemporalGCN
+from diversify.eval.evaluate import evaluate_model, visualize_results
+from diversify.datautil import get_act_dataloader
+from diversify.datautil.actdata import load_datasets
+
+# PyG imports
+from torch_geometric.data import Data
+from torch_geometric.utils import to_networkx
 
 tr, val, targetdata = cross_people.load_datasets(args)  # Note the module prefix
 train_loader = getdataloader_single.get_act_dataloader(args, tr, val, targetdata)
