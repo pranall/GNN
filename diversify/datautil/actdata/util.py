@@ -29,19 +29,18 @@ def act_train():
 def act_to_graph_transform(args):
     """Transformation pipeline for GNN models"""
     def _to_graph(x):
-        # x is [channels, timesteps] or [8, 200]
+        # x is [channels, timesteps] or [8, 200] or [8, 1, 200]
         if isinstance(x, torch.Tensor):
-            # add batch/feature dimension if needed
-            if x.dim() == 3:
-                # [channels, timesteps, features] → [channels, timesteps]
+            if x.dim() == 3 and x.shape == (8, 1, 200):
+                x = x.squeeze(1).transpose(1, 0)  # (8, 1, 200) -> (8, 200) -> (200, 8)
+            elif x.dim() == 3:
                 x = x[..., 0]
-            # Ensure float tensor
             x = x.float()
             if x.shape == (8, 200):
-                x = x.transpose(1, 0)  # Now (200, 8)
+                x = x.transpose(1, 0)  # (8, 200) -> (200, 8)
         # Convert to graph
         data = convert_to_graph(
-            x.unsqueeze(-1),  # convert [8, 200] to [8, 200, 1] for compatibility
+            x.unsqueeze(-1),  # convert [200, 8] to [200, 8, 1] for compatibility
             adjacency_strategy=getattr(args, 'graph_method', 'correlation'),
             threshold=getattr(args, 'graph_threshold', 0.5),
             top_k=getattr(args, 'graph_top_k', 3)
