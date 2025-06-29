@@ -29,7 +29,7 @@ def act_train():
 def act_to_graph_transform(args):
     """Transformation pipeline for GNN models"""
     def _to_graph(x):
-        print("ORIGINAL x.shape:", x.shape)
+        #print("ORIGINAL x.shape:", x.shape)
         #print("INSIDE _to_graph, got x.shape:", x.shape, "| type:", type(x))
         if isinstance(x, torch.Tensor):
             if x.dim() == 3 and x.shape == (8, 1, 200):
