@@ -97,54 +97,43 @@ class Diversify(Algorithm):
         else:
             raise ValueError(f"Unsupported x.dim(): {x.dim()}")
 
-    def update_d(self, inputs, opt):  # Changed parameter name from minibatches to inputs for consistency
-        """
-        Domain-discriminator update step with shape safety checks
-        """
+    def update_d(self, inputs, opt):
         device = next(self.parameters()).device
         adv_data, y_adv, d_adv = inputs
         
-        # ===== ADD DEBUG PRINTS HERE =====
         print("\n[DEBUG] Graph Structure Analysis:")
-        print("Unique graphs:", adv_data.batch.unique().shape[0])  # Should match your batch_size (32)
-        print("Nodes per graph:", len(adv_data.batch) // adv_data.batch.unique().shape[0])  # Should be 8 for EMG data
-        print("First 10 batch assignments:", adv_data.batch[:10])  # Should look like [0,0,0,0,0,0,0,0, 1,1] for 8 nodes/graph
+        print("Unique graphs:", adv_data.batch.unique().shape[0])
+        print("Nodes per graph:", len(adv_data.batch) // adv_data.batch.unique().shape[0])
+        print("First 10 batch assignments:", adv_data.batch[:10])
     
-        # =============== [1] Input Validation ===============
         print(f"[DEBUG] Input shapes - adv_data: {adv_data.shape if hasattr(adv_data, 'shape') else adv_data}, "
           f"y_adv: {y_adv.shape}, d_adv: {d_adv.shape}")
     
-        # =============== [2] Feature Extraction ===============
         features = self.featurizer(adv_data)
         print(f"[DEBUG] Pre-pool features: {features.shape}")
     
-        # =============== [3] Graph Pooling ===============
         if not hasattr(adv_data, 'batch'):
             raise ValueError("Input data missing 'batch' attribute for graph pooling")
         
         pooled = global_mean_pool(features, adv_data.batch)
         print(f"[DEBUG] Pooled features: {pooled.shape}, Domain labels: {d_adv.shape}")
-        print("Pooled features shape:", pooled.shape)  # Should be [32, feature_dim]
-        print("Domain labels shape:", d_adv.shape)    # Should be [32]
+        print("Pooled features shape:", pooled.shape)
+        print("Domain labels shape:", d_adv.shape)
         assert pooled.shape[0] == d_adv.shape[0], "Batch size mismatch after pooling!"
     
-        # =============== [4] Domain Classification ===============
         d_out = self.dclassifier(pooled)
     
-        # Ensure output matches domain label dimensions
         if d_out.shape[0] != d_adv.shape[0]:
             raise ValueError(f"Batch size mismatch: classifier output {d_out.shape[0]} != domain labels {d_adv.shape[0]}")
     
         d_out = d_out.view(-1, self.args.latent_domain_num)
         d_adv = d_adv.to(device).long()
     
-        # =============== [5] Loss Calculation ===============
         loss = F.cross_entropy(
             d_out, 
             d_adv.clamp(0, self.args.latent_domain_num - 1)
         ) * getattr(self, 'lambda_dis', 1.0)
     
-        # =============== [6] Optimization ===============
         opt.zero_grad()
         loss.backward()
         opt.step()
