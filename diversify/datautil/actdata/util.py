@@ -54,11 +54,11 @@ def act_to_graph_transform(args):
         return data
 
     return transforms.Compose([
-        transforms.ToTensor(),
         StandardScaler(),
         lambda x: x.view(args.input_shape[0], args.input_shape[2]),
-        _to_graph  # <------ THIS is what actually creates the PyG Data object!
+        _to_graph
     ])
+
 
 def loaddata_from_numpy(dataset='dsads', task='cross_people', root_dir='./data/act/'):
     if dataset == 'pamap' and task == 'cross_people':
