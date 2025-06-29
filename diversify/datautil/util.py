@@ -121,4 +121,47 @@ class mydataset(torch.utils.data.Dataset):
         return len(self.x)
 
 class subdataset(mydataset):
-    def
+    def __init__(self, args, dataset, indices):
+        super().__init__(args)
+        if isinstance(indices, int):
+            indices = [indices]
+        elif isinstance(indices, (torch.Tensor, np.ndarray)):
+            indices = indices.tolist()
+        indices = [int(i) for i in indices]
+        self.x = dataset.x[indices]
+        self.labels = dataset.labels[indices] if dataset.labels is not None else None
+        self.dlabels = dataset.dlabels[indices] if dataset.dlabels is not None else None
+        self.pclabels = dataset.pclabels[indices] if dataset.pclabels is not None else None
+        self.pdlabels = dataset.pdlabels[indices] if dataset.pdlabels is not None else None
+        self.loader = dataset.loader
+        self.task = dataset.task
+        self.dataset = dataset.dataset
+        self.transform = dataset.transform
+        self.target_transform = dataset.target_transform
+        self.mean = dataset.mean
+        self.std = dataset.std
+        self.class_distribution = dataset.class_distribution
+
+class combindataset(mydataset):
+    def __init__(self, args, datalist):
+        super().__init__(args)
+        self.domain_num = len(datalist)
+        self.loader = datalist[0].loader
+        xlist = [item.x for item in datalist]
+        cylist = [item.labels for item in datalist]
+        dylist = [item.dlabels for item in datalist]
+        pcylist = [item.pclabels for item in datalist]
+        pdylist = [item.pdlabels for item in datalist]
+        self.dataset = datalist[0].dataset
+        self.task = datalist[0].task
+        self.transform = datalist[0].transform
+        self.target_transform = datalist[0].target_transform
+        if all(torch.is_tensor(x) for x in xlist):
+            self.x = torch.vstack(xlist)
+        else:
+            self.x = np.vstack([x.numpy() if torch.is_tensor(x) else x for x in xlist])
+        self.labels = torch.tensor(np.hstack(cylist), dtype=torch.long)
+        self.dlabels = torch.tensor(np.hstack(dylist), dtype=torch.long)
+        self.pclabels = torch.tensor(np.hstack(pcylist), dtype=torch.long) if pcylist[0] is not None else None
+        self.pdlabels = torch.tensor(np.hstack(pdylist), dtype=torch.long) if pdylist[0] is not None else None
+        self.compute_statistics()
