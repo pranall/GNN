@@ -206,6 +206,7 @@ def get_args():
     # ====== END ADDED DEBUGGING PARAMETER ======
     
     # ======== GNN PARAMETERS ========
+    parser.add_argument('--graph_threshold', type=float, default=0.5, help='Threshold for graph correlation adjacency')
     parser.add_argument('--use_gnn', action='store_true', 
                         help='Use GNN instead of CNN')
     parser.add_argument('--gnn_hidden_dim', type=int, default=32,
