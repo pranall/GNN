@@ -43,7 +43,7 @@ def act_to_graph_transform(args):
                 x = x.transpose(1, 0)
                 #print("AFTER (8,200) -> (200,8):", x.shape)
             elif x.shape == (200, 8):
-                #print("ALREADY CORRECT:", x.shape)
+                print("ALREADY CORRECT:", x.shape)
         # Convert to graph
         data = convert_to_graph(
             x.unsqueeze(-1),  # convert [200, 8] to [200, 8, 1] for compatibility
