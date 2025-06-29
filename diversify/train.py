@@ -1,247 +1,179 @@
 import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
-import yaml
 import torch
-import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
-import networkx as nx
-
-# Absolute imports
-from diversify.alg import Diversify
-from diversify.utils.util import set_random_seed, get_args, print_args, print_environ
-from diversify.utils.monitor import TrainingMonitor
-from diversify.gnn.temporal_gcn import TemporalGCN
-from diversify.eval.evaluate import evaluate_model, visualize_results
-from diversify.datautil import get_act_dataloader
-from diversify.datautil.actdata import load_datasets
-
-# PyG imports
+from alg import alg, modelopera
+from utils.util import set_random_seed, get_args, print_args, print_environ
+from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.data import Data
-from torch_geometric.utils import to_networkx
-
-tr, val, targetdata = cross_people.load_datasets(args)  # Note the module prefix
-train_loader = getdataloader_single.get_act_dataloader(args, tr, val, targetdata)
-
-
-def unpack_batch(batch_item):
-    """Robust batch unpacking handling multiple input formats"""
-    if isinstance(batch_item, (list, tuple)):
-        if len(batch_item) == 2:  # (data, y)
-            return batch_item[0], batch_item[1], None
-        return batch_item  # (data, y, d)
-    return batch_item, batch_item.y, getattr(batch_item, 'domain', None)
+from gnn.temporal_gcn import TemporalGCN
+from gnn.graph_builder import GraphBuilder
 
 class DomainAdversarialLoss(nn.Module):
-    """Enhanced domain classifier with gradient reversal"""
     def __init__(self, bottleneck_dim):
         super().__init__()
-        self.discriminator = nn.Sequential(
-            nn.Linear(bottleneck_dim, 256),
-            nn.LeakyReLU(0.2),
-            nn.Linear(256, 1)
+        self.classifier = nn.Sequential(
+            nn.Linear(bottleneck_dim, 50),
+            nn.ReLU(),
+            nn.Linear(50, 1)
         )
         self.loss_fn = nn.BCEWithLogitsLoss()
-        
-    def forward(self, features, domain_labels):
-        if domain_labels.dim() == 1:
-            domain_labels = domain_labels.float().unsqueeze(1)
-        return self.loss_fn(self.discriminator(features), domain_labels)
+
+    def forward(self, features, labels):
+        preds = self.classifier(features).squeeze()
+        return self.loss_fn(preds, labels.float())
+
+
+def fix_emg_shape(x):
+    """
+    Ensures input x is [batch, 8, 200] for GNN.
+    Accepts: [batch, 1, 200], [batch, 200, 1], [batch, 8, 200], [batch, 200, 8].
+    Returns: [batch, 8, 200]
+    """
+    if isinstance(x, torch.Tensor):
+        if x.dim() == 3:
+            if x.shape[1] == 1 and x.shape[2] == 200:
+                x = x.repeat(1, 8, 1)
+            elif x.shape[1] == 200 and x.shape[2] == 1:
+                x = x.repeat(1, 1, 8).permute(0, 2, 1)
+            elif x.shape[1] == 8 and x.shape[2] == 200:
+                pass
+            elif x.shape[1] == 200 and x.shape[2] == 8:
+                x = x.permute(0, 2, 1)
+    return x
+
 
 def main(args):
-    # Initialization
-    cfg_path = os.path.join(os.path.dirname(__file__), 'emg_gnn.yml')
-    with open(cfg_path) as f:
-        config = yaml.safe_load(f)
-
     set_random_seed(args.seed)
     print_environ()
     print(print_args(args, []))
-    
-    # Device setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    os.makedirs(args.output, exist_ok=True)
-    torch.cuda.empty_cache()
-
-    # Data loading
-    try:
-        train_loader, train_ns_loader, val_loader, test_loader, _, _, _ = get_act_dataloader(
-            args, 
-            tr, 
-            val, 
-            targetdata
-    )
-            
-    except Exception as e:
-        raise RuntimeError(f"Data loading failed: {e}")
-
-    # Data sanity check
-    sample_batch = unpack_batch(next(iter(train_loader)))[0]
-    assert sample_batch.edge_index.size(1) > 0, "No edges detected in graph!"
-    print("\n=== DATA SANITY ===")
-    print(f"Features: {sample_batch.x.shape}")
-    print(f"Edges:    {sample_batch.edge_index.size(1)}")
-    print(f"Labels:   {torch.bincount(sample_batch.y)}")
-
-    # Model initialization
-    algorithm = alg.get_algorithm_class(args.algorithm)(args).to(device)
+    print(f"Using device: {device}")
     if args.use_gnn:
-        algorithm.featurizer = TemporalGCN(
-            input_dim=args.input_shape[-1],
-            hidden_dim=args.gnn_hidden_dim,
-            output_dim=args.gnn_output_dim
-        ).to(device)
-        # Visualize sample graph
-        sample_graph = Data(x=sample_batch.x[:8], edge_index=sample_batch.edge_index)
-        plt.figure(figsize=(6,6))
-        nx.draw(to_networkx(sample_graph), with_labels=True, node_color='lightblue')
-        plt.title("EMG Sensor Graph")
-        plt.show()
+        print("✅ GNN (TemporalGCN) is active for training.")
+    else:
+        print("⚠️ Using CNN-based baseline model.")
 
-    # Adversarial loss if configured
+    os.makedirs(args.output, exist_ok=True)
+    args.steps_per_epoch = min(100, args.batch_size * 10)
+
+    # Load data loaders
+    train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
+
+    # Debug first batch
+    batch = next(iter(train_loader))
+    x, y, d = batch
+    print("🔎 BATCH X type     :", type(x))
+    if hasattr(x, 'x'):
+        print(" x.x.shape          :", x.x.shape)
+        print(" x.edge_index.shape:", x.edge_index.shape)
+        print(" x.batch.shape      :", x.batch.shape)
+    else:
+        print(" raw tensor shape   :", x.shape)
+    print(" labels y.shape     :", y.shape)
+    print(" domains d.shape    :", d.shape)
+
+    # Initialize algorithm
+    AlgoClass = alg.get_algorithm_class(args.algorithm)
+    algorithm = AlgoClass(args).to(device)
+
+    # GNN integration
+    if args.use_gnn:
+        print("Initializing GNN feature extractor...")
+        graph_builder = GraphBuilder(
+            method='correlation', threshold_type='adaptive',
+            default_threshold=0.3, adaptive_factor=1.5
+        )
+        feat_len = args.input_shape[-1]
+        gnn = TemporalGCN(
+            input_dim=feat_len,
+            hidden_dim=args.gnn_hidden_dim,
+            output_dim=args.gnn_output_dim,
+            graph_builder=graph_builder
+        ).to(device)
+        algorithm.featurizer = gnn
+
+        def make_bottleneck(in_dim, out_dim, layers):
+            try:
+                num = int(layers)
+                mods = []
+                for _ in range(num - 1):
+                    mods += [nn.Linear(in_dim, in_dim), nn.ReLU()]
+                mods.append(nn.Linear(in_dim, out_dim))
+                return nn.Sequential(*mods)
+            except:
+                return nn.Linear(in_dim, out_dim)
+
+        in_dim, out_dim = args.gnn_output_dim, int(args.bottleneck)
+        algorithm.bottleneck  = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+        algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+        algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+
+        # Smoke test
+        demo_x = torch.randn(8, feat_len, device=device)
+        demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
+        with torch.no_grad():
+            demo_data = Data(x=demo_x, edge_index=demo_e)
+            demo_out = algorithm.featurizer(demo_data)
+        print("✅ Quick GNN smoke test output shape:", demo_out.shape)
+
+    algorithm.train()
+    optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr, weight_decay=getattr(args, 'weight_decay', 0))
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epoch)
     if getattr(args, 'domain_adv_weight', 0) > 0:
         algorithm.domain_adv_loss = DomainAdversarialLoss(int(args.bottleneck)).to(device)
 
-    # Optimization setup
-    optimizer = optim.AdamW(
-        algorithm.parameters(),
-        lr=args.lr,
-        weight_decay=args.weight_decay
-    )
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='max',
-        factor=0.5,
-        patience=5,
-        verbose=True
-    )
-
-    # Training state
-    logs = {
-        'epoch': [], 'train_loss': [], 'val_loss': [],
-        'train_acc': [], 'val_acc': [],
-        'h_divergence': [], 'silhouette': []
-    }
+    logs = {k: [] for k in ['train_acc','val_acc','test_acc','class_loss','dis_loss','ent_loss','total_loss']}
     best_val = 0.0
-    best_h_div = float('inf')
-    early_stop_counter = 0
 
-    # Training loop
-    for epoch in range(1, args.max_epoch + 1):
-        epoch_start = time.time()
-        algorithm.train()
-        epoch_class_loss, epoch_dis_loss = [], []
+    for epoch in range(1, args.max_epoch+1):
+        start_time = time.time()
 
-        for batch_idx, (batch_src, batch_adv) in enumerate(zip(train_loader, train_loader), 1):
-            # Source batch
-            data, y, d = unpack_batch(batch_src)
-            data, y = data.to(device, non_blocking=True), y.to(device, non_blocking=True)
-            if d is not None:
-                d = d.to(device, non_blocking=True)
+        # 1) Feature update
+        for x, y, d in train_loader:
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_a([x, y, d, y, d], optimizer)
+            logs['class_loss'].append(res['class'])
 
-            # Adversarial batch
-            adv_data, y_adv, d_adv = unpack_batch(batch_adv)
-            adv_data, y_adv = adv_data.to(device, non_blocking=True), y_adv.to(device, non_blocking=True)
-            if d_adv is not None:
-                d_adv = d_adv.to(device, non_blocking=True)
+        # 2) Domain‐discriminator update
+        for x, y, d in train_loader:
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_d([x, y, d], optimizer)
+            logs['dis_loss'].append(res['dis'])
+            logs['ent_loss'].append(res['ent'])
+            logs['total_loss'].append(res['total'])
 
-            # Training steps
-            res_a = algorithm.update_a([data, y, d, y, d], optimizer)
-            res_d = algorithm.update_d([adv_data, y_adv, d_adv], optimizer)
-            _ = algorithm.update((adv_data, y_adv), optimizer)
-
-            epoch_class_loss.append(res_a.get('class', 0))
-            epoch_dis_loss.append(res_d.get('dis', 0))
-
-            # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(algorithm.parameters(), max_norm=1.0)
-
-            # Memory management
-            if batch_idx % 50 == 0:
-                torch.cuda.empty_cache()
+        # 3) Domain‐invariant feature learning
+        for x, y, _ in train_loader:
+            x, y = x.to(device), y.to(device)
+            _ = algorithm.update((x, y), optimizer)
 
         # Evaluation
-        train_acc = modelopera.accuracy(algorithm, train_ns_loader, device)
-        val_acc   = modelopera.accuracy(algorithm, val_loader,        device)
-        scheduler.step(val_acc)
+        acc_fn = modelopera.accuracy
+        logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, device))
+        logs['val_acc'].append  (acc_fn(algorithm, val_loader, device))
+        logs['test_acc'].append (acc_fn(algorithm, test_loader, device))
 
-        # Domain metrics every 10 epochs
-        if epoch % 10 == 0:
-            try:
-                eval_res = evaluate_model(
-                    algorithm,
-                    {'source': train_ns_loader, 'target': val_loader},
-                    device
-                )
-                h_div = eval_res['domain_metrics']['h_divergence']
-                sil   = eval_res['domain_metrics']['silhouette']
-                if h_div < best_h_div * 0.95:
-                    best_h_div = h_div
-                    torch.save(
-                        algorithm.state_dict(),
-                        os.path.join(args.output, f'best_domain_epoch{epoch}.pth')
-                    )
-                logs['h_divergence'].append(h_div)
-                logs['silhouette'].append(sil)
-                print(f"Epoch {epoch}: H-Div: {h_div:.3f}, Silhouette: {sil:.3f}")
-            except Exception as e:
-                print(f"Domain evaluation failed: {e}")
+        scheduler.step()
+        if logs['val_acc'][-1] > best_val:
+            best_val = logs['val_acc'][-1]
+            torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
 
-        # Logging & checkpointing
-        logs['epoch'].append(epoch)
-        logs['train_loss'].append(float(np.mean(epoch_class_loss)))
-        logs['val_loss'].append(float(np.mean(epoch_dis_loss)))
-        logs['train_acc'].append(train_acc)
-        logs['val_acc'].append(val_acc)
+        print(f"Epoch {epoch}/{args.max_epoch} — "
+              f"Train: {logs['train_acc'][-1]:.4f}, "
+              f"Val: {logs['val_acc'][-1]:.4f}, "
+              f"Time: {time.time()-start_time:.1f}s")
 
-        if val_acc > best_val:
-            best_val = val_acc
-            early_stop_counter = 0
-            torch.save(
-                algorithm.state_dict(),
-                os.path.join(args.output, 'best_model.pth')
-            )
-        else:
-            early_stop_counter += 1
-
-        if early_stop_counter >= getattr(args, 'early_stop_patience', 10):
-            print(f"Early stopping at epoch {epoch}")
-            break
-
-        epoch_time = time.time() - epoch_start
-        print(f"Epoch {epoch}/{args.max_epoch} | "
-              f"Train {train_acc:.4f} (L {np.mean(epoch_class_loss):.4f}) | "
-              f"Val {val_acc:.4f} (L {np.mean(epoch_dis_loss):.4f}) | "
-              f"Time {epoch_time:.1f}s")
-
-    # Finalization
-    torch.save({
-        'logs': logs,
-        'config': config,
-        'args': vars(args)
-    }, os.path.join(args.output, 'training_logs.pt'))
-
-    try:
-        final_res = evaluate_model(
-            algorithm,
-            {'source': train_ns_loader, 'target': test_loader},
-            device
-        )
-        visualize_results(final_res, args.output)
-        np.savez(os.path.join(args.output, 'final_metrics.npz'), **final_res)
-    except Exception as e:
-        print(f"Final evaluation failed: {e}")
-
-    print(f"\nTraining complete. Best validation accuracy: {best_val:.4f}")
+    print(f"Training complete. Best validation accuracy: {best_val:.4f}")
 
 if __name__ == '__main__':
     args = get_args()
-    args.use_gnn            = getattr(args, 'use_gnn', False)
-    args.gnn_hidden_dim     = getattr(args, 'gnn_hidden_dim', 64)
-    args.gnn_output_dim     = getattr(args, 'gnn_output_dim', 128)
-    args.latent_domain_num  = getattr(args, 'latent_domain_num', 4)
-    args.early_stop_patience = getattr(args, 'early_stop_patience', 10)
+    if not hasattr(args, 'use_gnn'):
+        args.use_gnn = False
+    if args.use_gnn:
+        args.gnn_hidden_dim = getattr(args, 'gnn_hidden_dim', 64)
+        args.gnn_output_dim = getattr(args, 'gnn_output_dim', 256)
+    if not hasattr(args, 'latent_domain_num') or args.latent_domain_num is None:
+        args.latent_domain_num = 4
     main(args)
