@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-"""graph_utils"""
-
 import numpy as np
 import torch
 from torch_geometric.data import Data
@@ -26,7 +23,9 @@ def convert_to_graph(sensor_data, adjacency_strategy='fully_connected', threshol
     x = sensor_data.reshape(num_nodes, -1)  # Shape: [num_nodes, timesteps*features]
     flat_data_np = x.cpu().numpy()
 
-    # Edge construction
+    edge_index = torch.empty((2, 0), dtype=torch.long)
+    edge_attr = None
+
     if adjacency_strategy == 'fully_connected':
         edge_index = []
         for i in range(num_nodes):
@@ -44,16 +43,20 @@ def convert_to_graph(sensor_data, adjacency_strategy='fully_connected', threshol
             for j in range(i+1, num_nodes):
                 if abs(corr_matrix[i, j]) > threshold:
                     edge_index.append([i, j])
-                    edge_index.append([j, i])  # Undirected graph
+                    edge_index.append([j, i])  # Undirected
                     weight = abs(corr_matrix[i, j])
                     edge_weight.extend([weight, weight])
-        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+        if edge_index:
+            edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+            edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1)
+        else:
+            edge_index = torch.empty((2, 0), dtype=torch.long)
+            edge_attr = None
 
     elif adjacency_strategy == 'top_k_correlation':
         corr_matrix = np.corrcoef(flat_data_np)
         abs_corr = np.abs(corr_matrix)
-        np.fill_diagonal(abs_corr, 0)  # Remove self-correlation
+        np.fill_diagonal(abs_corr, 0)
         edge_index = []
         edge_weight = []
         for i in range(num_nodes):
@@ -63,8 +66,12 @@ def convert_to_graph(sensor_data, adjacency_strategy='fully_connected', threshol
                 edge_index.append([j, i])
                 weight = abs_corr[i, j]
                 edge_weight.extend([weight, weight])
-        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+        if edge_index:
+            edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+            edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1)
+        else:
+            edge_index = torch.empty((2, 0), dtype=torch.long)
+            edge_attr = None
 
     elif adjacency_strategy == 'knn':
         from sklearn.neighbors import kneighbors_graph
@@ -76,10 +83,14 @@ def convert_to_graph(sensor_data, adjacency_strategy='fully_connected', threshol
             dist = knn_graph[i, j]
             weight = 1.0 / (1.0 + dist)
             edge_index.append([i, j])
-            edge_index.append([j, i])  # Make undirected
+            edge_index.append([j, i])
             edge_weight.extend([weight, weight])
-        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+        if edge_index:
+            edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+            edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1)
+        else:
+            edge_index = torch.empty((2, 0), dtype=torch.long)
+            edge_attr = None
 
     elif adjacency_strategy == 'dtw':
         edge_index = []
@@ -108,20 +119,22 @@ def convert_to_graph(sensor_data, adjacency_strategy='fully_connected', threshol
                 edge_index.append([j, i])
                 weight = dtw_sim[i, j]
                 edge_weight.extend([weight, weight])
-        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+        if edge_index:
+            edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+            edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1)
+        else:
+            edge_index = torch.empty((2, 0), dtype=torch.long)
+            edge_attr = None
 
     else:
         raise ValueError(f"Unknown adjacency strategy: {adjacency_strategy}")
 
-    # ----- PATCH: Always guarantee edges (never empty!) -----
+    # Spam protection: Print "No edges found" only ONCE
     if edge_index.numel() == 0:
-        # No edges found; add self-loops for all nodes
+        if not hasattr(convert_to_graph, "_printed_no_edges"):
+            print(f"[convert_to_graph] No edges found. Added self-loops for {num_nodes} nodes.")
+            setattr(convert_to_graph, "_printed_no_edges", True)
         edge_index = torch.stack([torch.arange(num_nodes), torch.arange(num_nodes)], dim=0)
         edge_attr = None
-        print(f"[convert_to_graph] No edges found. Added self-loops for {num_nodes} nodes.")
-
-    # Optional: Print edges per graph, for debugging
-    # print(f"[convert_to_graph] Constructed graph with {edge_index.size(1)} edges for {num_nodes} nodes (strategy={adjacency_strategy})")
 
     return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
