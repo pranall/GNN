@@ -135,17 +135,17 @@ def get_act_dataloader(args):
         tdata = task.ActList(args, args.dataset, args.data_dir, tmpp, i, transform=transform)
         
         # — Debug: inspect the *raw* dataset sample before batching —
-        if i == 0 and getattr(args, 'use_gnn', False):
-            sample = tdata[0]
-            print("🔎 RAW SAMPLE TYPE:", type(sample))
-            if hasattr(sample, 'x'):
-                print("  sample.x.shape     :", sample.x.shape)
-                print("  sample.edge_index  :", sample.edge_index.shape)
-            elif isinstance(sample, tuple):
-                shapes = [e.shape if isinstance(e, torch.Tensor) else type(e) for e in sample]
-                print("  sample tuple shapes:", shapes)
-            else:
-                print("  sample is:", sample)
+        #if i == 0 and getattr(args, 'use_gnn', False):
+            #sample = tdata[0]
+            #print("🔎 RAW SAMPLE TYPE:", type(sample))
+            #if hasattr(sample, 'x'):
+                #print("  sample.x.shape     :", sample.x.shape)
+                #print("  sample.edge_index  :", sample.edge_index.shape)
+            #elif isinstance(sample, tuple):
+                #shapes = [e.shape if isinstance(e, torch.Tensor) else type(e) for e in sample]
+                #print("  sample tuple shapes:", shapes)
+            #else:
+                #print("  sample is:", sample)
         # — end debug —
 
         if i in args.test_envs:
