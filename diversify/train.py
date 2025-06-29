@@ -85,7 +85,9 @@ def main(args):
             method='correlation', threshold_type='adaptive',
             default_threshold=0.3, adaptive_factor=1.5
         )
-        feat_len = args.input_shape[-1]
+        
+        x, y, d = batch
+        feat_len = x.x.shape[1] if hasattr(x, 'x') else x.shape[1]
         gnn = TemporalGCN(
             input_dim=feat_len,
             hidden_dim=args.gnn_hidden_dim,
