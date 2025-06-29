@@ -93,3 +93,42 @@ class ActList(mydataset):
     def set_x(self, x):
         """Update input features"""
         self.x = x
+
+# THIS SHOULD BE AT MODULE LEVEL (NOT INDENTED)
+def load_datasets(args):
+    """Create train/val/test splits from ActList"""
+    from datautil.actdata.util import loaddata_from_numpy
+
+    # Load raw data
+    x, cy, py, sy = loaddata_from_numpy(args.dataset, 'cross_people', args.data_dir)
+
+    # Create splits (adjust ratios as needed)
+    train_idx = int(0.7 * len(x))
+    val_idx = int(0.85 * len(x))
+
+    # Initialize datasets
+    train_data = ActList(
+        args,
+        dataset=args.dataset,
+        root_dir=args.data_dir,
+        people_group=args.act_people['emg'][:24],  # First 24 people for train
+        group_num=0
+    )
+
+    val_data = ActList(
+        args,
+        dataset=args.dataset,
+        root_dir=args.data_dir,
+        people_group=args.act_people['emg'][24:30],  # Next 6 for val
+        group_num=1
+    )
+
+    test_data = ActList(
+        args,
+        dataset=args.dataset,
+        root_dir=args.data_dir,
+        people_group=args.act_people['emg'][30:],  # Last 6 for test
+        group_num=2
+    )    
+
+    return train_data, val_data, test_data
