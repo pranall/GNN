@@ -102,6 +102,7 @@ class mydataset(torch.utils.data.Dataset):
             self.x = (self.x - self.mean) / (self.std + 1e-8)
 
     def __getitem__(self, index):
+        print("mydataset.transform:", self.transform)   # <--- ADD THIS LINE
         # Convert index to Python int
         if isinstance(index, np.integer):
             index = int(index)
