@@ -1,3 +1,5 @@
-from .act_network import *
-from .Adver_network import *
-from .common_network import *
+from .act_network import ActNetwork
+from .Adver_network import AdversarialNetwork
+from .common_network import CommonNetwork
+
+__all__ = ['ActNetwork', 'AdversarialNetwork', 'CommonNetwork']
