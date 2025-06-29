@@ -13,27 +13,21 @@ class TemporalGCN(nn.Module):
         self.in_features = output_dim
 
     def forward(self, data, return_embeddings=False):
-        # 1. Extract node features and edge connections
         x, edge_index = data.x, data.edge_index  
     
-        # 2. Handle batch dimension if present
-        if x.dim() == 3:  # [batch_size, num_nodes, features]
+        if x.dim() == 3:
             x = x.squeeze(1)
     
-        # 3. First graph convolution
         x = self.gcn1(x, edge_index)
         x = F.relu(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
     
-        # 4. Second graph convolution (embeddings)
-        x = self.gcn2(x, edge_index)  # This is the embedding we want
+        x = self.gcn2(x, edge_index)
     
-        # 5. Final classification layer
-        out = self.classifier(x)  # Prediction outputs
+        out = self.classifier(x)
     
-        # 6. Return logic
         if return_embeddings:
-            return out, x  # Return (predictions, embeddings)
+            return out, x
         return out
 
     def reconstruct(self, features):
