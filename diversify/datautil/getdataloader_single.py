@@ -78,7 +78,11 @@ def collate_gnn(batch):
         datas, ys, ds = [], [], []
         for data, y, d in batch:
             data.y = torch.tensor(y, dtype=torch.long) if not hasattr(data, "y") else data.y
-            data.domain = torch.tensor(d, dtype=torch.long) if not hasattr(data, "domain") else data.domain
+            if not hasattr(data, "domain"):
+                if isinstance(d, torch.Tensor):
+                    data.domain = d.clone().detach().long()
+                else:
+                    data.domain = torch.tensor(d, dtype=torch.long)
             datas.append(data)
             ys.append(y)
             ds.append(d)
