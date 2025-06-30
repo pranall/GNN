@@ -26,13 +26,13 @@ class DomainAdversarialLoss(nn.Module):
 
 def fix_emg_shape(x):
     """Ensure x is [batch,8,200] for GNN."""
-    if isinstance(x, torch.Tensor) and x.dim()==3:
-        if x.shape[1]==1 and x.shape[2]==200:
-            x = x.repeat(1,8,1)
-        elif x.shape[1]==200 and x.shape[2]==1:
-            x = x.repeat(1,1,8).permute(0,2,1)
-        elif x.shape==(x.shape[0],200,8):
-            x = x.permute(0,2,1)
+    if isinstance(x, torch.Tensor) and x.dim() == 3:
+        if x.shape[1] == 1 and x.shape[2] == 200:
+            x = x.repeat(1, 8, 1)
+        elif x.shape[1] == 200 and x.shape[2] == 1:
+            x = x.repeat(1, 1, 8).permute(0, 2, 1)
+        elif x.shape[1] == 200 and x.shape[2] == 8:
+            x = x.permute(0, 2, 1)
     return x
 
 def main(args):
@@ -75,12 +75,13 @@ def main(args):
 
     # ── GNN integration ────────────────────────────────────────────────
     if args.use_gnn:
-        print("Initializing GNN feature extractor…")
+        print("Initializing GNN feature extractor...")
         graph_builder = GraphBuilder(
             method=args.graph_method,
             threshold_type='fixed',
             default_threshold=args.graph_threshold,
-            adaptive_factor=1.0
+            adaptive_factor=1.0,
+            top_k=args.graph_top_k
         )
 
         # infer per‐node feature length
@@ -139,37 +140,48 @@ def main(args):
         start_time = time.time()
 
         # 1) Feature update
-        for x,y,d in train_loader:
-            x,y,d = x.to(device), y.to(device), d.to(device)
-            res = algorithm.update_a([x,y,d,y,d], optimizer)
+        for x, y, d in train_loader:
+            # reshape raw tensors or DataBatch.x
+            if hasattr(x, 'x'):
+                x.x = fix_emg_shape(x.x)
+            else:
+                x = fix_emg_shape(x)
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
 
         # 2) Discriminator update
-        for x,y,d in train_loader:
-            x,y,d = x.to(device), y.to(device), d.to(device)
-            res = algorithm.update_d([x,y,d], optimizer)
+        for x, y, d in train_loader:
+            if hasattr(x, 'x'):
+                x.x = fix_emg_shape(x.x)
+            else:
+                x = fix_emg_shape(x)
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_d([x, y, d], optimizer)
             logs['dis_loss'].append(res['dis'])
             logs['ent_loss'].append(res['ent'])
             logs['total_loss'].append(res['total'])
 
-        # 3) Domain‐invariant update
-        for x,y,_ in train_loader:
-            x,y = x.to(device), y.to(device)
-            _ = algorithm.update((x,y), optimizer)
+        # 3) Domain-invariant update
+        for x, y, _ in train_loader:
+            if hasattr(x, 'x'):
+                x.x = fix_emg_shape(x.x)
+            else:
+                x = fix_emg_shape(x)
+            x, y = x.to(device), y.to(device)
+            _ = algorithm.update((x, y), optimizer)
 
         # Evaluation
         acc_fn = modelopera.accuracy
         logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, device))
-        logs['val_acc'].append  (acc_fn(algorithm, val_loader,      device))
-        logs['test_acc'].append (acc_fn(algorithm, test_loader,     device))
+        logs['val_acc'].append(  acc_fn(algorithm, val_loader,      device))
+        logs['test_acc'].append( acc_fn(algorithm, test_loader,     device))
 
         scheduler.step()
         if logs['val_acc'][-1] > best_val:
             best_val = logs['val_acc'][-1]
-            torch.save(
-                algorithm.state_dict(),
-                os.path.join(args.output,'best_model.pth')
-            )
+            torch.save(algorithm.state_dict(),
+                       os.path.join(args.output, 'best_model.pth'))
 
         print(f"Epoch {epoch}/{args.max_epoch} — "
               f"Train: {logs['train_acc'][-1]:.4f}, "
