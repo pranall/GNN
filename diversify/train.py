@@ -24,47 +24,43 @@ class DomainAdversarialLoss(nn.Module):
         preds = self.classifier(features).squeeze()
         return self.loss_fn(preds, labels.float())
 
-
 def fix_emg_shape(x):
-    """
-    Ensures input x is [batch, 8, 200] for GNN.
-    Accepts: [batch, 1, 200], [batch, 200, 1], [batch, 8, 200], [batch, 200, 8].
-    Returns: [batch, 8, 200]
-    """
-    if isinstance(x, torch.Tensor) and x.dim() == 3:
-        if x.shape[1] == 1 and x.shape[2] == 200:
-            x = x.repeat(1, 8, 1)
-        elif x.shape[1] == 200 and x.shape[2] == 1:
-            x = x.repeat(1, 1, 8).permute(0, 2, 1)
-        elif x.shape[1] == 200 and x.shape[2] == 8:
-            x = x.permute(0, 2, 1)
+    """Ensure x is [batch,8,200] for GNN."""
+    if isinstance(x, torch.Tensor) and x.dim()==3:
+        if x.shape[1]==1 and x.shape[2]==200:
+            x = x.repeat(1,8,1)
+        elif x.shape[1]==200 and x.shape[2]==1:
+            x = x.repeat(1,1,8).permute(0,2,1)
+        elif x.shape==(x.shape[0],200,8):
+            x = x.permute(0,2,1)
     return x
 
-
 def main(args):
-    # force single-worker in Colab/GPU environments
+    # force single‐worker to avoid hang in Colab
     args.N_WORKERS = 0
+
     set_random_seed(args.seed)
     print_environ()
     print(print_args(args, []))
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     if args.use_gnn:
         print("✅ GNN (TemporalGCN) is active for training.")
     else:
-        print("⚠️ Using CNN-based baseline model.")
+        print("⚠️ Using CNN‐based baseline model.")
 
     os.makedirs(args.output, exist_ok=True)
     args.steps_per_epoch = min(100, args.batch_size * 10)
 
-    # Load data
+    # ── Load data ───────────────────────────────────────────────────────
     train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
 
-    # Inspect first batch
+    # ── Inspect first batch ─────────────────────────────────────────────
     batch = next(iter(train_loader))
     x, y, d = batch
     print("🔎 BATCH X type     :", type(x))
-    if hasattr(x, 'x'):
+    if hasattr(x,'x'):
         print(" x.x.shape          :", x.x.shape)
         print(" x.edge_index.shape:", x.edge_index.shape)
         print(" x.batch.shape      :", x.batch.shape)
@@ -73,27 +69,23 @@ def main(args):
     print(" labels y.shape     :", y.shape)
     print(" domains d.shape    :", d.shape)
 
-    # Initialize algorithm
+    # ── Initialize algorithm ────────────────────────────────────────────
     AlgoClass = alg.get_algorithm_class(args.algorithm)
     algorithm = AlgoClass(args).to(device)
 
-    # GNN integration
+    # ── GNN integration ────────────────────────────────────────────────
     if args.use_gnn:
-        print("Initializing GNN feature extractor (using fully-connected graph)...")
-        # emulate fully-connected by zero-threshold correlation
+        print("Initializing GNN feature extractor…")
         graph_builder = GraphBuilder(
             method=args.graph_method,
-            #method='correlation',
             threshold_type='fixed',
             default_threshold=args.graph_threshold,
             adaptive_factor=1.0
-            default_threshold=0.0
         )
 
-        # determine feature dimensionality
-        feat_len = x.x.shape[1] if hasattr(x, 'x') else x.shape[1]
+        # infer per‐node feature length
+        feat_len = x.x.shape[1] if hasattr(x,'x') else x.shape[1]
 
-        # build and attach GNN
         gnn = TemporalGCN(
             input_dim=feat_len,
             hidden_dim=args.gnn_hidden_dim,
@@ -102,88 +94,97 @@ def main(args):
         ).to(device)
         algorithm.featurizer = gnn
 
-        # bottleneck heads
+        # Bottleneck heads
         def make_bottleneck(in_dim, out_dim, layers):
             try:
                 num = int(layers)
                 mods = []
-                for _ in range(num - 1):
-                    mods += [nn.Linear(in_dim, in_dim), nn.ReLU()]
-                mods.append(nn.Linear(in_dim, out_dim))
+                for _ in range(num-1):
+                    mods += [nn.Linear(in_dim,in_dim), nn.ReLU()]
+                mods.append(nn.Linear(in_dim,out_dim))
                 return nn.Sequential(*mods)
             except:
-                return nn.Linear(in_dim, out_dim)
+                return nn.Linear(in_dim,out_dim)
 
         in_dim, out_dim = args.gnn_output_dim, int(args.bottleneck)
-        algorithm.bottleneck  = make_bottleneck(in_dim, out_dim, args.layer).to(device)
-        algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
-        algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+        algorithm.bottleneck  = make_bottleneck(in_dim,out_dim,args.layer).to(device)
+        algorithm.abottleneck = make_bottleneck(in_dim,out_dim,args.layer).to(device)
+        algorithm.dbottleneck = make_bottleneck(in_dim,out_dim,args.layer).to(device)
 
-        # quick smoke test
+        # Quick smoke‐test
         demo_x = torch.randn(8, feat_len, device=device)
         demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
         with torch.no_grad():
             demo_data = Data(x=demo_x, edge_index=demo_e)
-            demo_out = algorithm.featurizer(demo_data)
+            demo_out  = algorithm.featurizer(demo_data)
         print("✅ Quick GNN smoke test output shape:", demo_out.shape)
 
+    # ── Training loop ───────────────────────────────────────────────────
     algorithm.train()
-    optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr,
-                            weight_decay=getattr(args, 'weight_decay', 0))
+    optimizer = optim.AdamW(
+        algorithm.parameters(),
+        lr=args.lr,
+        weight_decay=getattr(args,'weight_decay',0)
+    )
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epoch)
-    if getattr(args, 'domain_adv_weight', 0) > 0:
+    if getattr(args,'domain_adv_weight',0)>0:
         algorithm.domain_adv_loss = DomainAdversarialLoss(int(args.bottleneck)).to(device)
 
-    logs = {k: [] for k in ['train_acc','val_acc','test_acc',
-                              'class_loss','dis_loss','ent_loss','total_loss']}
+    logs = {k:[] for k in [
+        'train_acc','val_acc','test_acc','class_loss','dis_loss','ent_loss','total_loss'
+    ]}
     best_val = 0.0
 
     for epoch in range(1, args.max_epoch+1):
         start_time = time.time()
-        # 1) feature extractor update
-        for x, y, d in train_loader:
-            x, y, d = x.to(device), y.to(device), d.to(device)
-            res = algorithm.update_a([x, y, d, y, d], optimizer)
+
+        # 1) Feature update
+        for x,y,d in train_loader:
+            x,y,d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_a([x,y,d,y,d], optimizer)
             logs['class_loss'].append(res['class'])
-        # 2) discriminator update
-        for x, y, d in train_loader:
-            x, y, d = x.to(device), y.to(device), d.to(device)
-            res = algorithm.update_d([x, y, d], optimizer)
+
+        # 2) Discriminator update
+        for x,y,d in train_loader:
+            x,y,d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_d([x,y,d], optimizer)
             logs['dis_loss'].append(res['dis'])
             logs['ent_loss'].append(res['ent'])
             logs['total_loss'].append(res['total'])
-        # 3) classifier update
-        for x, y, _ in train_loader:
-            x, y = x.to(device), y.to(device)
-            _ = algorithm.update((x, y), optimizer)
 
-        # evaluation
+        # 3) Domain‐invariant update
+        for x,y,_ in train_loader:
+            x,y = x.to(device), y.to(device)
+            _ = algorithm.update((x,y), optimizer)
+
+        # Evaluation
         acc_fn = modelopera.accuracy
         logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, device))
-        logs['val_acc'].append  (acc_fn(algorithm, val_loader, device))
-        logs['test_acc'].append (acc_fn(algorithm, test_loader, device))
+        logs['val_acc'].append  (acc_fn(algorithm, val_loader,      device))
+        logs['test_acc'].append (acc_fn(algorithm, test_loader,     device))
 
         scheduler.step()
         if logs['val_acc'][-1] > best_val:
             best_val = logs['val_acc'][-1]
-            torch.save(algorithm.state_dict(),
-                       os.path.join(args.output, 'best_model.pth'))
+            torch.save(
+                algorithm.state_dict(),
+                os.path.join(args.output,'best_model.pth')
+            )
 
         print(f"Epoch {epoch}/{args.max_epoch} — "
               f"Train: {logs['train_acc'][-1]:.4f}, "
-              f"Val: {logs['val_acc'][-1]:.4f}, "
-              f"Time: {time.time()-start_time:.1f}s")
+              f"Val:   {logs['val_acc'][-1]:.4f}, "
+              f"Time:  {time.time()-start_time:.1f}s")
 
     print(f"Training complete. Best validation accuracy: {best_val:.4f}")
-
 
 if __name__ == '__main__':
     args = get_args()
     if not hasattr(args, 'use_gnn'):
         args.use_gnn = False
     if args.use_gnn:
-        args.gnn_hidden_dim = getattr(args, 'gnn_hidden_dim', 64)
-        args.gnn_output_dim = getattr(args, 'gnn_output_dim', 256)
+        args.gnn_hidden_dim  = getattr(args, 'gnn_hidden_dim', 64)
+        args.gnn_output_dim  = getattr(args, 'gnn_output_dim', 256)
     if not hasattr(args, 'latent_domain_num') or args.latent_domain_num is None:
         args.latent_domain_num = 4
     main(args)
