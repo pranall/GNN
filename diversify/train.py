@@ -82,8 +82,11 @@ def main(args):
         print("Initializing GNN feature extractor (using fully-connected graph)...")
         # emulate fully-connected by zero-threshold correlation
         graph_builder = GraphBuilder(
-            method='correlation',
+            method=args.graph_method,
+            #method='correlation',
             threshold_type='fixed',
+            default_threshold=args.graph_threshold,
+            adaptive_factor=1.0
             default_threshold=0.0
         )
 
