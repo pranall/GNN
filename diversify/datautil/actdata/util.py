@@ -27,26 +27,40 @@ def act_train():
     ])
 
 def act_to_graph_transform(args):
-    """Transformation pipeline for GNN models"""
+    """Transformation pipeline for GNN models: Always produces (200,8) per sample."""
     def _to_graph(x):
-        #print("ORIGINAL x.shape:", x.shape)
-        #print("INSIDE _to_graph, got x.shape:", x.shape, "| type:", type(x))
-        if isinstance(x, torch.Tensor):
-            if x.dim() == 3 and x.shape == (8, 1, 200):
-                x = x.squeeze(1).transpose(1, 0)
-                #print("AFTER FIX (8,1,200) -> (200,8):", x.shape)
-            elif x.dim() == 3:
-                x = x[..., 0]
-                #print("AFTER ...0:", x.shape)
-            x = x.float()
-            if x.shape == (8, 200):
-                x = x.transpose(1, 0)
-                #print("AFTER (8,200) -> (200,8):", x.shape)
-            elif x.shape == (200, 8):
-                print("ALREADY CORRECT:", x.shape)
+        # --- x is expected to be a numpy array or tensor ---
+        # Convert numpy to torch if needed
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x).float()
+        if not isinstance(x, torch.Tensor):
+            raise ValueError(f"Input x must be torch.Tensor or np.ndarray, got {type(x)}")
+
+        # Handle known EMG shapes:
+        # - (8, 1, 200): squeeze and permute to (200, 8)
+        # - (8, 200): permute to (200, 8)
+        # - (200, 8): already fine
+        # - (200,): rare edge-case
+        if x.dim() == 3 and x.shape == (8, 1, 200):
+            x = x.squeeze(1).transpose(1, 0)  # (8, 200) -> (200, 8)
+        elif x.dim() == 3 and x.shape[1] == 1 and x.shape[2] == 200:
+            x = x.squeeze(1).transpose(1, 0)
+        elif x.shape == (8, 200):
+            x = x.transpose(1, 0)
+        elif x.shape == (200, 8):
+            pass
+        elif x.dim() == 1 and x.shape[0] == 200:
+            x = x.unsqueeze(-1).repeat(1, 8)
+        else:
+            raise ValueError(f"Unrecognized EMG sample shape for GNN: {x.shape}")
+
+        # Final check: x should always be (200, 8) now
+        if x.shape != (200, 8):
+            raise ValueError(f"After processing, EMG sample not (200,8): got {x.shape}")
+
         # Convert to graph
         data = convert_to_graph(
-            x.unsqueeze(-1),  # convert [200, 8] to [200, 8, 1] for compatibility
+            x.unsqueeze(-1),  # [200, 8] -> [200, 8, 1] if needed by convert_to_graph
             adjacency_strategy=getattr(args, 'graph_method', 'correlation'),
             threshold=getattr(args, 'graph_threshold', 0.5),
             top_k=getattr(args, 'graph_top_k', 3)
@@ -55,7 +69,6 @@ def act_to_graph_transform(args):
 
     return transforms.Compose([
         StandardScaler(),
-        lambda x: x.view(args.input_shape[0], args.input_shape[2]),
         _to_graph
     ])
 
