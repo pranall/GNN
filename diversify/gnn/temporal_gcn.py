@@ -11,7 +11,7 @@ class TemporalGCN(nn.Module):
             nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.3)
+            nn.Dropout(0.3))
         
         # GCN layers
         self.gcn1 = GCNConv(hidden_dim, hidden_dim)
