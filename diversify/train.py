@@ -81,13 +81,10 @@ def main(args):
 
     # GNN integration
     if args.use_gnn:
-        print("Initializing GNN feature extractor...")
-        graph_builder = GraphBuilder(
-            method='correlation', threshold_type='adaptive',
-            default_threshold=0.3, adaptive_factor=1.5
-        )
-        
-        x, y, d = batch
+        print("Initializing GNN feature extractor (using fully-connected graph)…")
+        graph_builder = GraphBuilder(method='fully_connected')
+
+        # figure out feature dims from the first batch
         feat_len = x.x.shape[1] if hasattr(x, 'x') else x.shape[1]
         gnn = TemporalGCN(
             input_dim=feat_len,
@@ -97,6 +94,7 @@ def main(args):
         ).to(device)
         algorithm.featurizer = gnn
 
+        # Bottleneck heads
         def make_bottleneck(in_dim, out_dim, layers):
             try:
                 num = int(layers)
@@ -118,7 +116,6 @@ def main(args):
         demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
         with torch.no_grad():
             demo_data = Data(x=demo_x, edge_index=demo_e)
-            print("GNN SMOKE TEST: demo_data.x.shape", demo_data.x.shape)  # Add this
             demo_out = algorithm.featurizer(demo_data)
         print("✅ Quick GNN smoke test output shape:", demo_out.shape)
 
