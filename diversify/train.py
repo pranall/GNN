@@ -76,8 +76,9 @@ def main(args):
                             lr=args.lr,
                             weight_decay=args.weight_decay)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epoch)
-    if args.domain_adv_weight>0:
-        algorithm.domain_adv_loss = DomainAdversarialLoss(args.bottleneck).to(device)
+    if getattr(args, 'domain_adv_weight', 0) > 0:
+        algorithm.domain_adv_loss = DomainAdversarialLoss(int(args.bottleneck)).to(device)
+
 
     logs, best_val = {k:[] for k in
         ['train_acc','val_acc','test_acc','class_loss','dis_loss','ent_loss','total_loss']
