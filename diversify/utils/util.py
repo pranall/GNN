@@ -205,21 +205,65 @@ def get_args():
                         help='Enable debugging mode with small dataset subset')
     # ====== END ADDED DEBUGGING PARAMETER ======
     
-    # ======== GNN PARAMETERS ========
-    parser.add_argument('--graph_threshold', type=float, default=0.5, help='Threshold for graph correlation adjacency')
-    parser.add_argument('--use_gnn', action='store_true', 
-                        help='Use GNN instead of CNN')
-    parser.add_argument('--gnn_hidden_dim', type=int, default=32,
-                        help='Hidden dimension for GNN layers')
-    parser.add_argument('--gnn_output_dim', type=int, default=128,
-                        help='Output dimension for GNN layers')
-    parser.add_argument('--gnn_lr', type=float, default=0.001,
-                        help='Learning rate for GNN pretraining')
-    parser.add_argument('--gnn_weight_decay', type=float, default=0.0001,
-                        help='Weight decay for GNN pretraining')
-    parser.add_argument('--gnn_pretrain_epochs', type=int, default=5,
-                        help='Number of GNN pretraining epochs')
+    # … up at the top of utils/util.py …
+
+# ======== GNN PARAMETERS ========
+    parser.add_argument(
+        '--graph_method',
+        type=str,
+        choices=['fully_connected', 'correlation', 'knn', 'top_k_correlation', 'dtw'],
+        default='correlation',
+        help='Graph adjacency strategy'
+    )
+    parser.add_argument(
+        '--graph_threshold',
+        type=float,
+        default=0.5,
+        help='Threshold for graph correlation adjacency'
+    )
+    parser.add_argument(
+        '--graph_top_k',
+        type=int,
+        default=3,
+        help='Number of top‐k neighbors for graph adjacency (used by top_k or dtw)'
+    )
+    parser.add_argument(
+        '--use_gnn',
+        action='store_true',
+        help='Use GNN instead of CNN'
+    )
+    parser.add_argument(
+        '--gnn_hidden_dim',
+        type=int,
+        default=32,
+        help='Hidden dimension for GNN layers'
+    )
+    parser.add_argument(
+        '--gnn_output_dim',
+        type=int,
+        default=128,
+        help='Output dimension for GNN layers'
+    )
+    parser.add_argument(
+        '--gnn_lr',
+        type=float,
+        default=0.001,
+        help='Learning rate for GNN pretraining'
+    )
+    parser.add_argument(
+        '--gnn_weight_decay',
+        type=float,
+        default=0.0001,
+        help='Weight decay for GNN pretraining'
+    )
+    parser.add_argument(
+        '--gnn_pretrain_epochs',
+        type=int,
+        default=5,
+        help='Number of GNN pretraining epochs'
+    )
     # ======== END GNN PARAMETERS ========
+
     
     # System parameters
     parser.add_argument('--gpu_id', type=str, default='0', 
