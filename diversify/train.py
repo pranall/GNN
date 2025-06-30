@@ -8,6 +8,7 @@ from utils.util import set_random_seed, get_args, print_args, print_environ
 from datautil.getdataloader_single import get_act_dataloader
 from torch_geometric.data import Data
 from gnn.temporal_gcn import TemporalGCN
+from gnn.graph_builder import GraphBuilder
 
 class DomainAdversarialLoss(nn.Module):
     def __init__(self, bottleneck_dim):
@@ -19,123 +20,156 @@ class DomainAdversarialLoss(nn.Module):
         )
         self.loss_fn = nn.BCEWithLogitsLoss()
     def forward(self, features, labels):
-        return self.loss_fn(self.classifier(features).squeeze(), labels.float())
+        preds = self.classifier(features).squeeze()
+        return self.loss_fn(preds, labels.float())
 
-def safe_update(optimizer, model, loss, max_norm=1.0):
-    """Unified update with gradient clipping"""
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-    optimizer.step()
-    optimizer.zero_grad()
+def fix_emg_shape(x):
+    """Ensure x is [batch,8,200] for GNN."""
+    if isinstance(x, torch.Tensor) and x.dim() == 3:
+        if x.shape[1] == 1 and x.shape[2] == 200:
+            x = x.repeat(1, 8, 1)
+        elif x.shape[1] == 200 and x.shape[2] == 1:
+            x = x.repeat(1, 1, 8).permute(0, 2, 1)
+        elif x.shape[1] == 200 and x.shape[2] == 8:
+            x = x.permute(0, 2, 1)
+    return x
 
 def main(args):
-    # Initialize
+    # ── DEBUG MODE: very short run ───────────────────────────────────
     args.N_WORKERS = 0
+    if args.debug_mode:
+        args.steps_per_epoch = 50
+        args.max_epoch       = 2
+    # ────────────────────────────────────────────────────────────────
+
     set_random_seed(args.seed)
     print_environ()
     print(print_args(args, []))
-    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
-    print("✅ GNN active" if args.use_gnn else "⚠️ Using CNN baseline")
-    
+
     os.makedirs(args.output, exist_ok=True)
     args.steps_per_epoch = min(100, args.batch_size * 10)
-    
-    # Load data
+
     train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
-    
-    # Inspect first batch
+
+    # inspect first batch
     batch = next(iter(train_loader))
     x, y, d = batch
-    print("🔍 BATCH INSPECTION:")
-    if hasattr(x, 'x'):
-        print(f"  Nodes: {x.x.shape} (should be [batch*8, 3])")
-        print(f"  Edges: {x.edge_index.shape} (should be [2, E] where E > 0)")
-        print(f"  Edge samples:\n{x.edge_index[:, :5]}")
-    else:
-        print(f"  Input shape: {x.shape}")
-    print(f"  Labels: {y.shape}, Domains: {d.shape}")
+    print("🔎 First batch:", type(x), getattr(x, 'x', x).shape, "labels:", y.shape)
 
-    # Initialize model
+    # algorithm and GNN setup
     AlgoClass = alg.get_algorithm_class(args.algorithm)
     algorithm = AlgoClass(args).to(device)
-    
-    # GNN setup
+
     if args.use_gnn:
-        feat_dim = x.x.size(1)
+        print("Initializing GNN (TemporalGCN)...")
+        graph_builder = GraphBuilder(
+            method=args.graph_method,
+            threshold_type='fixed',
+            default_threshold=args.graph_threshold,
+            adaptive_factor=1.0,
+            fully_connected_fallback=True,
+        )
+        feat_len = x.x.shape[1] if hasattr(x, 'x') else x.shape[1]
         gnn = TemporalGCN(
-            input_dim=feat_dim,
+            input_dim=feat_len,
             hidden_dim=args.gnn_hidden_dim,
-            output_dim=args.gnn_output_dim
+            output_dim=args.gnn_output_dim,
+            graph_builder=graph_builder
         ).to(device)
         algorithm.featurizer = gnn
-        
-        # Validate GNN
-        test_input = Data(
-            x=torch.randn(64*8, feat_dim).to(device),
-            edge_index=torch.randint(0, 64*8, (2, 64*8*3)).to(device),
-            batch=torch.arange(64).repeat_interleave(8).to(device)
-        )
-        out = algorithm.featurizer(test_input)
-        assert out.shape == (64, args.gnn_output_dim), \
-               f"GNN shape mismatch! Got {out.shape}, expected {(64, args.gnn_output_dim)}"
 
-    # Training setup
-    optimizer = optim.AdamW(algorithm.parameters(), lr=0.0)  # Start with 0 for warmup
-    best_val = 0.0
-    torch.backends.cudnn.benchmark = True
-    torch.cuda.empty_cache()
+        # Bottlenecks
+        def make_bottleneck(in_dim, out_dim, layers):
+            try:
+                num = int(layers)
+                mods = []
+                for _ in range(num - 1):
+                    mods += [nn.Linear(in_dim, in_dim), nn.ReLU()]
+                mods.append(nn.Linear(in_dim, out_dim))
+                return nn.Sequential(*mods)
+            except:
+                return nn.Linear(in_dim, out_dim)
 
-    # Training loop
-    for epoch in range(1, args.max_epoch + 1):
-        start = time.time()
-        algorithm.train()
-        
-        # LR warmup (5 epochs)
-        warmup_lr = args.lr * min(1.0, epoch/5)
-        for g in optimizer.param_groups:
-            g['lr'] = warmup_lr
+        in_dim, out_dim = args.gnn_output_dim, int(args.bottleneck)
+        algorithm.bottleneck  = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+        algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+        algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
 
-        # Training phase
-        total_loss = 0.0
-        for x, y, d in train_loader:
-            x, y, d = x.to(device), y.to(device), d.to(device)
-            
-            # Combined update with gradient clipping
-            optimizer.zero_grad()
-            loss = algorithm.update_a([x, y, d, y, d])
-            safe_update(optimizer, algorithm, loss)
-            total_loss += loss.item()
-
-        # Evaluation
-        algorithm.eval()
+        # quick smoke test
+        demo_x = torch.randn(8, feat_len, device=device)
+        demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
         with torch.no_grad():
-            train_acc = modelopera.accuracy(algorithm, train_ns_loader, device)
-            val_acc = modelopera.accuracy(algorithm, val_loader, device)
-            test_acc = modelopera.accuracy(algorithm, test_loader, device)
+            demo_data = Data(x=demo_x, edge_index=demo_e)
+            out = algorithm.featurizer(demo_data)
+        print("✅ Smoke test output shape:", out.shape)
 
-        # Save best model
-        if val_acc > best_val:
-            best_val = val_acc
+    algorithm.train()
+    optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epoch)
+    if getattr(args, 'domain_adv_weight', 0) > 0:
+        algorithm.domain_adv_loss = DomainAdversarialLoss(int(args.bottleneck)).to(device)
+
+    logs, best_val = {k: [] for k in ['train_acc','val_acc','test_acc','class_loss','dis_loss','ent_loss','total_loss']}, 0.0
+
+    for epoch in range(1, args.max_epoch + 1):
+        print(f"\n>> Epoch {epoch}/{args.max_epoch}")
+        start_epoch = time.time()
+
+        # 1) Feature update
+        for i, (x, y, d) in enumerate(train_loader, 1):
+            if i % 10 == 0:
+                print(f"   batch {i}/{len(train_loader)}")
+            if hasattr(x, 'x'):
+                x.x = fix_emg_shape(x.x)
+            else:
+                x = fix_emg_shape(x)
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_a([x, y, d, y, d], optimizer)
+            logs['class_loss'].append(res['class'])
+
+        # 2) Discriminator update
+        for x, y, d in train_loader:
+            if hasattr(x, 'x'):
+                x.x = fix_emg_shape(x.x)
+            else:
+                x = fix_emg_shape(x)
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_d([x, y, d], optimizer)
+            logs['dis_loss'].append(res['dis']); logs['ent_loss'].append(res['ent']); logs['total_loss'].append(res['total'])
+
+        # 3) Classifier update
+        for x, y, _ in train_loader:
+            if hasattr(x, 'x'):
+                x.x = fix_emg_shape(x.x)
+            else:
+                x = fix_emg_shape(x)
+            x, y = x.to(device), y.to(device)
+            _ = algorithm.update((x, y), optimizer)
+
+        # evaluation
+        acc_fn = modelopera.accuracy
+        logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, device))
+        logs['val_acc'].append(  acc_fn(algorithm, val_loader,      device))
+        logs['test_acc'].append( acc_fn(algorithm, test_loader,     device))
+
+        scheduler.step()
+        if logs['val_acc'][-1] > best_val:
+            best_val = logs['val_acc'][-1]
             torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
-            if val_acc > 0.80 and epoch >= 5:  # Early stopping
-                print(f"🎯 Early stopping at epoch {epoch} (val_acc={val_acc:.2%})")
-                break
 
-        # Logging
-        epoch_time = time.time() - start
-        print(f"Epoch {epoch}/{args.max_epoch} - "
-              f"LR: {warmup_lr:.1e} | "
-              f"Loss: {total_loss/len(train_loader):.4f} | "
-              f"Train: {train_acc:.2%} | "
-              f"Val: {val_acc:.2%} | "
-              f"Time: {epoch_time:.1f}s")
+        print(f"→ Epoch {epoch} done in {time.time()-start_epoch:.1f}s — "
+              f"Train: {logs['train_acc'][-1]:.4f}, Val: {logs['val_acc'][-1]:.4f}")
 
-    print(f"Training complete. Best val acc: {best_val:.2%}")
+    print(f"\nTraining complete. Best val acc: {best_val:.4f}")
 
 if __name__ == '__main__':
     args = get_args()
-    if not hasattr(args, 'use_gnn'): 
-        args.use_gnn = False
+    if not hasattr(args, 'use_gnn'):        args.use_gnn = False
+    if args.use_gnn:
+        args.gnn_hidden_dim  = getattr(args, 'gnn_hidden_dim', 64)
+        args.gnn_output_dim  = getattr(args, 'gnn_output_dim', 256)
+    if getattr(args, 'latent_domain_num', None) is None:
+        args.latent_domain_num = 4
     main(args)
