@@ -31,20 +31,18 @@ def fix_emg_shape(x):
     Accepts: [batch, 1, 200], [batch, 200, 1], [batch, 8, 200], [batch, 200, 8].
     Returns: [batch, 8, 200]
     """
-    if isinstance(x, torch.Tensor):
-        if x.dim() == 3:
-            if x.shape[1] == 1 and x.shape[2] == 200:
-                x = x.repeat(1, 8, 1)
-            elif x.shape[1] == 200 and x.shape[2] == 1:
-                x = x.repeat(1, 1, 8).permute(0, 2, 1)
-            elif x.shape[1] == 8 and x.shape[2] == 200:
-                pass
-            elif x.shape[1] == 200 and x.shape[2] == 8:
-                x = x.permute(0, 2, 1)
+    if isinstance(x, torch.Tensor) and x.dim() == 3:
+        if x.shape[1] == 1 and x.shape[2] == 200:
+            x = x.repeat(1, 8, 1)
+        elif x.shape[1] == 200 and x.shape[2] == 1:
+            x = x.repeat(1, 1, 8).permute(0, 2, 1)
+        elif x.shape[1] == 200 and x.shape[2] == 8:
+            x = x.permute(0, 2, 1)
     return x
 
 
 def main(args):
+    # force single-worker in Colab/GPU environments
     args.N_WORKERS = 0
     set_random_seed(args.seed)
     print_environ()
@@ -59,10 +57,10 @@ def main(args):
     os.makedirs(args.output, exist_ok=True)
     args.steps_per_epoch = min(100, args.batch_size * 10)
 
-    # Load data loaders
+    # Load data
     train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
 
-    # Debug first batch
+    # Inspect first batch
     batch = next(iter(train_loader))
     x, y, d = batch
     print("🔎 BATCH X type     :", type(x))
@@ -82,10 +80,17 @@ def main(args):
     # GNN integration
     if args.use_gnn:
         print("Initializing GNN feature extractor (using fully-connected graph)...")
-        graph_builder = GraphBuilder(method='fully_connected')
+        # emulate fully-connected by zero-threshold correlation
+        graph_builder = GraphBuilder(
+            method='correlation',
+            threshold_type='fixed',
+            default_threshold=0.0
+        )
 
-        # figure out feature dims from the first batch
+        # determine feature dimensionality
         feat_len = x.x.shape[1] if hasattr(x, 'x') else x.shape[1]
+
+        # build and attach GNN
         gnn = TemporalGCN(
             input_dim=feat_len,
             hidden_dim=args.gnn_hidden_dim,
@@ -94,7 +99,7 @@ def main(args):
         ).to(device)
         algorithm.featurizer = gnn
 
-        # Bottleneck heads
+        # bottleneck heads
         def make_bottleneck(in_dim, out_dim, layers):
             try:
                 num = int(layers)
@@ -111,7 +116,7 @@ def main(args):
         algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
         algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
 
-        # Smoke test
+        # quick smoke test
         demo_x = torch.randn(8, feat_len, device=device)
         demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
         with torch.no_grad():
@@ -120,37 +125,36 @@ def main(args):
         print("✅ Quick GNN smoke test output shape:", demo_out.shape)
 
     algorithm.train()
-    optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr, weight_decay=getattr(args, 'weight_decay', 0))
+    optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr,
+                            weight_decay=getattr(args, 'weight_decay', 0))
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epoch)
     if getattr(args, 'domain_adv_weight', 0) > 0:
         algorithm.domain_adv_loss = DomainAdversarialLoss(int(args.bottleneck)).to(device)
 
-    logs = {k: [] for k in ['train_acc','val_acc','test_acc','class_loss','dis_loss','ent_loss','total_loss']}
+    logs = {k: [] for k in ['train_acc','val_acc','test_acc',
+                              'class_loss','dis_loss','ent_loss','total_loss']}
     best_val = 0.0
 
     for epoch in range(1, args.max_epoch+1):
         start_time = time.time()
-
-        # 1) Feature update
+        # 1) feature extractor update
         for x, y, d in train_loader:
             x, y, d = x.to(device), y.to(device), d.to(device)
             res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
-
-        # 2) Domain‐discriminator update
+        # 2) discriminator update
         for x, y, d in train_loader:
             x, y, d = x.to(device), y.to(device), d.to(device)
             res = algorithm.update_d([x, y, d], optimizer)
             logs['dis_loss'].append(res['dis'])
             logs['ent_loss'].append(res['ent'])
             logs['total_loss'].append(res['total'])
-
-        # 3) Domain‐invariant feature learning
+        # 3) classifier update
         for x, y, _ in train_loader:
             x, y = x.to(device), y.to(device)
             _ = algorithm.update((x, y), optimizer)
 
-        # Evaluation
+        # evaluation
         acc_fn = modelopera.accuracy
         logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, device))
         logs['val_acc'].append  (acc_fn(algorithm, val_loader, device))
@@ -159,7 +163,8 @@ def main(args):
         scheduler.step()
         if logs['val_acc'][-1] > best_val:
             best_val = logs['val_acc'][-1]
-            torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
+            torch.save(algorithm.state_dict(),
+                       os.path.join(args.output, 'best_model.pth'))
 
         print(f"Epoch {epoch}/{args.max_epoch} — "
               f"Train: {logs['train_acc'][-1]:.4f}, "
@@ -167,6 +172,7 @@ def main(args):
               f"Time: {time.time()-start_time:.1f}s")
 
     print(f"Training complete. Best validation accuracy: {best_val:.4f}")
+
 
 if __name__ == '__main__':
     args = get_args()
