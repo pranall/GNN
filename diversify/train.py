@@ -45,6 +45,7 @@ def fix_emg_shape(x):
 
 
 def main(args):
+    args.N_WORKERS = 0
     set_random_seed(args.seed)
     print_environ()
     print(print_args(args, []))
