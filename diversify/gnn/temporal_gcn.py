@@ -4,30 +4,18 @@ import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, global_mean_pool
 
 class TemporalGCN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, graph_builder=None):
+    def __init__(self, input_dim=200, hidden_dim=64, output_dim=128):
         super().__init__()
-        self.gcn1       = GCNConv(input_dim,  hidden_dim)
-        self.gcn2       = GCNConv(hidden_dim, hidden_dim)
-        self.classifier = nn.Linear(hidden_dim, output_dim)
-        self.in_features = output_dim
-
+        self.time_encoder = nn.Linear(input_dim, hidden_dim)
+        self.gcn1 = GCNConv(hidden_dim, hidden_dim)
+        self.gcn2 = GCNConv(hidden_dim, hidden_dim)
+        
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
-
-        # if x has extra dims (e.g. [N,1,200]), flatten to [N,200]
-        if x.dim() > 2:
-            x = x.view(x.size(0), -1)
-
-        # two graph-conv layers
-        h = F.relu(self.gcn1(x, edge_index))
-        h = F.relu(self.gcn2(h, edge_index))
-
-        # **global mean pooling over each graph in the batch**
-        hg = global_mean_pool(h, batch)     # → [batch_size, hidden_dim]
-
-        # project to output dim
-        out = self.classifier(hg)           # → [batch_size, output_dim]
-        return out
+        x = F.relu(self.time_encoder(x))  # [batch*8, hidden]
+        x = F.relu(self.gcn1(x, edge_index))
+        x = global_mean_pool(self.gcn2(x, edge_index), batch)
+        return x
 
     def reconstruct(self, features):
         return self.recon(features)
