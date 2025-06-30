@@ -24,7 +24,6 @@ def set_random_seed(seed=0):
     torch.backends.cudnn.benchmark = False
 
 def train_valid_target_eval_names(args):
-    """Generate evaluation names based on domain configuration"""
     eval_name_dict = {'train': [], 'valid': [], 'target': []}
     for i in range(args.domain_num):
         if i not in args.test_envs:
@@ -35,16 +34,12 @@ def train_valid_target_eval_names(args):
     return eval_name_dict
 
 def alg_loss_dict(args):
-    """Get loss names for different algorithms"""
-    loss_dict = {
-        'diversify': ['class', 'dis', 'total']
-    }
+    loss_dict = {'diversify': ['class', 'dis', 'total']}
     return loss_dict.get(args.algorithm, ['total'])
 
 def print_args(args, print_list=[]):
-    """Print selected arguments in a formatted way"""
     s = "==========================================\n"
-    if not print_list:  # Print all arguments if list is empty
+    if not print_list:
         print_list = args.__dict__.keys()
     for arg in print_list:
         if hasattr(args, arg):
@@ -52,7 +47,6 @@ def print_args(args, print_list=[]):
     return s
 
 def print_row(row, colwidth=10, latex=False):
-    """Print a formatted row of values"""
     sep = " & " if latex else "  "
     end_ = "\\\\" if latex else ""
     def format_val(x):
@@ -62,7 +56,6 @@ def print_row(row, colwidth=10, latex=False):
     print(sep.join(format_val(x) for x in row), end_)
 
 def print_environ():
-    """Print environment information"""
     print("Environment:")
     print(f"\tPython: {sys.version.split(' ')[0]}")
     print(f"\tPyTorch: {torch.__version__}")
@@ -73,7 +66,6 @@ def print_environ():
     print(f"\tPIL: {PIL.__version__}")
 
 class Tee:
-    """Tee output to both console and file"""
     def __init__(self, fname, mode="a"):
         self.stdout = sys.stdout
         self.file = open(fname, mode)
@@ -86,137 +78,83 @@ class Tee:
         self.file.flush()
 
 def act_param_init(args):
-    """Initialize activity recognition parameters"""
     args.select_position = {'emg': [0]}
-    args.select_channel  = {'emg': np.arange(8)}
-    args.hz_list         = {'emg': 1000}
-    args.act_people      = {'emg': [[i*9+j for j in range(9)] for i in range(4)]}
-    dataset_params = {
-        'emg': ((8,1,200), 6, 10)
-    }
+    args.select_channel = {'emg': np.arange(8)}
+    args.hz_list = {'emg': 1000}
+    args.act_people = {'emg': [[i*9 + j for j in range(9)] for i in range(4)]}
+    dataset_params = { 'emg': ((8, 1, 200), 6, 10) }
     params = dataset_params.get(args.dataset, ((0,0,0),0,0))
-    args.input_shape = params[0]
-    args.num_classes = params[1]
-    args.grid_size   = params[2]
+    args.input_shape, args.num_classes, args.grid_size = params
     return args
 
 def get_args():
-    """Parse and return command line arguments"""
     parser = argparse.ArgumentParser(description='Domain Generalization for Activity Recognition')
 
-    # Algorithm parameters
+    # Algorithm
     parser.add_argument('--model_type', type=str, default='cnn', choices=['cnn','gnn'])
-    parser.add_argument('--algorithm' , type=str, default='diversify')
-    parser.add_argument('--alpha'     , type=float, default=0.1)
-    parser.add_argument('--alpha1'    , type=float, default=0.1)
+    parser.add_argument('--algorithm',  type=str, default='diversify')
+    parser.add_argument('--alpha',      type=float, default=0.1)
+    parser.add_argument('--alpha1',     type=float, default=0.1)
 
-    # Training parameters
-    parser.add_argument('--batch_size'    , type=int  , default=32)
-    parser.add_argument('--beta1'         , type=float, default=0.5)
-    parser.add_argument('--checkpoint_freq', type=int  , default=100)
-    parser.add_argument('--local_epoch'    , type=int  , default=1)
-    parser.add_argument('--max_epoch'      , type=int  , default=120)
-    parser.add_argument('--lr'             , type=float, default=1e-2)
-    parser.add_argument('--lr_decay1'      , type=float, default=1.0)
-    parser.add_argument('--lr_decay2'      , type=float, default=1.0)
-    parser.add_argument('--weight_decay'   , type=float, default=5e-4)
+    # Training
+    parser.add_argument('--batch_size',       type=int,   default=32)
+    parser.add_argument('--beta1',            type=float, default=0.5)
+    parser.add_argument('--checkpoint_freq',  type=int,   default=100)
+    parser.add_argument('--local_epoch',      type=int,   default=1)
+    parser.add_argument('--max_epoch',        type=int,   default=120)
+    parser.add_argument('--lr',               type=float, default=1e-2)
+    parser.add_argument('--lr_decay1',        type=float, default=1.0)
+    parser.add_argument('--lr_decay2',        type=float, default=1.0)
+    parser.add_argument('--weight_decay',     type=float, default=5e-4)
+    parser.add_argument('--dropout',          type=float, default=0.0)
+    parser.add_argument('--label_smoothing',  type=float, default=0.0)
 
-    # Regularization
-    parser.add_argument('--dropout'        , type=float, default=0.0)
-    parser.add_argument('--label_smoothing', type=float, default=0.0)
+    # Architecture
+    parser.add_argument('--bottleneck', type=int,    default=256)
+    parser.add_argument('--classifier', type=str,    default='linear')
+    parser.add_argument('--dis_hidden', type=int,    default=256)
+    parser.add_argument('--layer',      type=str,    default='bn')
+    parser.add_argument('--model_size', type=str,    default='median')
 
-    # Model architecture
-    parser.add_argument('--bottleneck' , type=int   , default=256)
-    parser.add_argument('--classifier' , type=str   , default='linear', choices=['linear','wn'])
-    parser.add_argument('--dis_hidden' , type=int   , default=256)
-    parser.add_argument('--layer'      , type=str   , default='bn', choices=['ori','bn'])
-    parser.add_argument('--model_size' , type=str   , default='median', choices=['small','median','large','transformer'])
+    # Domain
+    parser.add_argument('--lam',              type=float, default=0.0)
+    parser.add_argument('--latent_domain_num',type=int,   default=None)
+    parser.add_argument('--domain_num',       type=int,   default=0)
 
-    # Domain parameters
-    parser.add_argument('--lam'            , type=float, default=0.0)
-    parser.add_argument('--latent_domain_num', type=int, default=None)
-    parser.add_argument('--domain_num'     , type=int  , default=0)
+    # Data
+    parser.add_argument('--data_file', type=str, default='')
+    parser.add_argument('--data_dir',  type=str, default='')
+    parser.add_argument('--dataset',   type=str, default='emg')
+    parser.add_argument('--task',      type=str, default='cross_people')
+    parser.add_argument('--test_envs', type=int, nargs='+', default=[0])
+    parser.add_argument('--N_WORKERS', type=int, default=4)
 
-    # Data parameters
-    parser.add_argument('--data_file' , type=str   , default='')
-    parser.add_argument('--dataset'   , type=str   , default='emg')
-    parser.add_argument('--data_dir'  , type=str   , default='')
-    parser.add_argument('--task'      , type=str   , default='cross_people')
-    parser.add_argument('--test_envs' , type=int, nargs='+', default=[0])
-    parser.add_argument('--N_WORKERS' , type=int   , default=4)
-
-    # Experimental features
+    # Experimentals
     parser.add_argument('--automated_k', action='store_true')
-    parser.add_argument('--curriculum' , action='store_true')
+    parser.add_argument('--curriculum',  action='store_true')
     parser.add_argument('--CL_PHASE_EPOCHS', type=int, default=5)
     parser.add_argument('--enable_shap', action='store_true')
-    parser.add_argument('--resume'      , type=str, default=None)
+    parser.add_argument('--resume',      type=str, default=None)
+    parser.add_argument('--debug_mode',  action='store_true')
 
-    # Debugging
-    parser.add_argument('--debug_mode', action='store_true')
+    # ——— GNN FLAGS ———
+    parser.add_argument('--graph_method',
+                        type=str,
+                        choices=['fully_connected','correlation','knn','top_k_correlation','dtw'],
+                        default='correlation')
+    parser.add_argument('--graph_threshold', type=float, default=0.5)
+    parser.add_argument('--graph_top_k',     type=int,   default=3)
+    parser.add_argument('--use_gnn',         action='store_true')
+    parser.add_argument('--gnn_hidden_dim',  type=int, default=32)
+    parser.add_argument('--gnn_output_dim',  type=int, default=128)
+    parser.add_argument('--gnn_lr',          type=float, default=0.001)
+    parser.add_argument('--gnn_weight_decay',type=float, default=0.0001)
+    parser.add_argument('--gnn_pretrain_epochs',type=int, default=5)
 
-    # ======== GNN PARAMETERS ========
-    parser.add_argument(
-        '--graph_method',
-        type=str,
-        choices=['fully_connected','correlation','knn','top_k_correlation','dtw'],
-        default='correlation',
-        help='Graph adjacency strategy'
-    )
-    parser.add_argument(
-        '--graph_threshold',
-        type=float,
-        default=0.5,
-        help='Threshold for graph correlation adjacency'
-    )
-    parser.add_argument(
-        '--graph_top_k',
-        type=int,
-        default=3,
-        help='Number of top-k neighbors (for top_k_correlation/dtw)'
-    )
-    parser.add_argument(
-        '--use_gnn',
-        action='store_true',
-        help='Use GNN instead of CNN'
-    )
-    parser.add_argument(
-        '--gnn_hidden_dim',
-        type=int,
-        default=32,
-        help='Hidden dimension for GNN layers'
-    )
-    parser.add_argument(
-        '--gnn_output_dim',
-        type=int,
-        default=128,
-        help='Output dimension for GNN layers'
-    )
-    parser.add_argument(
-        '--gnn_lr',
-        type=float,
-        default=0.001,
-        help='Learning rate for GNN pretraining'
-    )
-    parser.add_argument(
-        '--gnn_weight_decay',
-        type=float,
-        default=0.0001,
-        help='Weight decay for GNN pretraining'
-    )
-    parser.add_argument(
-        '--gnn_pretrain_epochs',
-        type=int,
-        default=5,
-        help='Number of GNN pretraining epochs'
-    )
-    # ======== END GNN PARAMETERS ========
-
-    # System
     parser.add_argument('--gpu_id', type=str, default='0')
-    parser.add_argument('--seed'  , type=int, default=0)
+    parser.add_argument('--seed',   type=int, default=0)
     parser.add_argument('--output', type=str, default='train_output')
-    parser.add_argument('--old'   , action='store_true')
+    parser.add_argument('--old',    action='store_true')
 
     args = parser.parse_args()
     args.steps_per_epoch = 10**10
