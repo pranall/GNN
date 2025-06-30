@@ -23,7 +23,7 @@ class DomainAdversarialLoss(nn.Module):
 
 def main(args):
     # force single‐worker if needed
-    args.N_WORKERS = args.N_WORKERS
+    args.N_WORKERS = 0
     set_random_seed(args.seed)
     print_environ()
     print(print_args(args, []))
