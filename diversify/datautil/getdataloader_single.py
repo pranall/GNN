@@ -1,17 +1,13 @@
 import numpy as np
 import torch
 import random
-import collections
 from torch.utils.data import DataLoader, Subset
 from torch_geometric.data import Data, Batch
-from sklearn.model_selection import train_test_split
-from typing import List, Tuple, Dict, Any, Optional
 
 import datautil.actdata.util as actutil
 import datautil.actdata.cross_people as cross_people
 from datautil.util import combindataset, subdataset
 from datautil.graph_utils import convert_to_graph
-from datautil.actdata import cross_people as pcross_act
 
 # Task mapping
 task_act = {'cross_people': cross_people}
@@ -19,12 +15,15 @@ task_act = {'cross_people': cross_people}
 class ConsistentFormatWrapper(torch.utils.data.Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
-        
+
     def __len__(self):
         return len(self.dataset)
-        
+
     def __getitem__(self, idx):
         sample = self.dataset[idx]
+        # Debug print
+        if idx < 3:  # Only print the first few
+            print(f"[ConsistentFormatWrapper] idx {idx}, type {type(sample)}")
         if isinstance(sample, tuple) and len(sample) >= 3:
             return sample[0], sample[1], sample[2]
         elif isinstance(sample, Data):
@@ -45,7 +44,7 @@ class SafeSubset(Subset):
     def __getitem__(self, idx):
         data = self.dataset[self.indices[idx]]
         return self.convert_data(data)
-    
+
     def convert_data(self, data):
         if isinstance(data, tuple):
             return tuple(self.convert_data(x) for x in data)
@@ -71,8 +70,10 @@ class SafeSubset(Subset):
                 return data
 
 def collate_gnn(batch):
+    # Print batch shapes for debugging
+    print("[collate_gnn] Batch len:", len(batch))
     if isinstance(batch[0], Data):
-        # All elements are Data objects
+        print("[collate_gnn] Data.x shape:", batch[0].x.shape)
         return Batch.from_data_list(batch)
     elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
         datas, ys, ds = [], [], []
@@ -89,18 +90,25 @@ def collate_gnn(batch):
         batched = Batch.from_data_list(datas)
         ys = torch.tensor(ys, dtype=torch.long)
         ds = torch.tensor(ds, dtype=torch.long)
+        print("[collate_gnn] Batched.x shape:", batched.x.shape, "ys:", ys.shape, "ds:", ds.shape)
         return batched, ys, ds
     else:
         raise ValueError("Unsupported batch format for collate_gnn")
 
 def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
-    return DataLoader(dataset=dataset, batch_size=batch_size,
-                      num_workers=num_workers, shuffle=shuffle,
-                      drop_last=shuffle, collate_fn=collate_gnn)
+    return DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        shuffle=shuffle,
+        drop_last=shuffle,
+        collate_fn=collate_gnn
+    )
 
 def get_dataloader(args, tr, val, tar):
     is_graph_data = hasattr(args, 'model_type') and args.model_type == 'gnn'
     sample = tr[0] if len(tr) > 0 else None
+    print("[get_dataloader] Sample type:", type(sample))
     if isinstance(sample, tuple) and len(sample) >= 3 and isinstance(sample[0], Data):
         is_graph_data = True
     elif isinstance(sample, Data):
@@ -109,13 +117,14 @@ def get_dataloader(args, tr, val, tar):
         is_graph_data = True
 
     if is_graph_data:
+        print("[get_dataloader] Using GNN dataloader")
         return (
             get_gnn_dataloader(tr, args.batch_size, args.N_WORKERS, shuffle=True),
             get_gnn_dataloader(tr, args.batch_size, args.N_WORKERS, shuffle=False),
             get_gnn_dataloader(val, args.batch_size, args.N_WORKERS, shuffle=False),
             get_gnn_dataloader(tar, args.batch_size, args.N_WORKERS, shuffle=False),
         )
-
+    print("[get_dataloader] Using standard DataLoader")
     return (
         DataLoader(tr, batch_size=args.batch_size, num_workers=args.N_WORKERS, shuffle=True),
         DataLoader(tr, batch_size=args.batch_size, num_workers=args.N_WORKERS, shuffle=False),
@@ -133,20 +142,18 @@ def get_act_dataloader(args):
     for i, person in enumerate(tmpp):
         transform = actutil.act_to_graph_transform(args) if getattr(args, 'use_gnn', False) else actutil.act_train()
         tdata = task.ActList(args, args.dataset, args.data_dir, tmpp, i, transform=transform)
-        
-        # — Debug: inspect the *raw* dataset sample before batching —
-        #if i == 0 and getattr(args, 'use_gnn', False):
-            #sample = tdata[0]
-            #print("🔎 RAW SAMPLE TYPE:", type(sample))
-            #if hasattr(sample, 'x'):
-                #print("  sample.x.shape     :", sample.x.shape)
-                #print("  sample.edge_index  :", sample.edge_index.shape)
-            #elif isinstance(sample, tuple):
-                #shapes = [e.shape if isinstance(e, torch.Tensor) else type(e) for e in sample]
-                #print("  sample tuple shapes:", shapes)
-            #else:
-                #print("  sample is:", sample)
-        # — end debug —
+
+        if i == 0 and getattr(args, 'use_gnn', False):
+            sample = tdata[0]
+            print("[get_act_dataloader] RAW SAMPLE TYPE:", type(sample))
+            if hasattr(sample, 'x'):
+                print("  sample.x.shape     :", sample.x.shape)
+                print("  sample.edge_index  :", sample.edge_index.shape)
+            elif isinstance(sample, tuple):
+                shapes = [e.shape if isinstance(e, torch.Tensor) else type(e) for e in sample]
+                print("  sample tuple shapes:", shapes)
+            else:
+                print("  sample is:", sample)
 
         if i in args.test_envs:
             target_datalist.append(tdata)
@@ -170,5 +177,5 @@ def get_act_dataloader(args):
     targetdata = combindataset(args, target_datalist)
     targetdata = ConsistentFormatWrapper(targetdata)
 
-    print(f"Train samples: {len(tr)}, Val samples: {len(val)}, Target samples: {len(targetdata)}")
+    print(f"[get_act_dataloader] Train samples: {len(tr)}, Val samples: {len(val)}, Target samples: {len(targetdata)}")
     return (*get_dataloader(args, tr, val, targetdata), tr, val, targetdata)
