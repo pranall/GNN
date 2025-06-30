@@ -81,7 +81,7 @@ def main(args):
 
     # GNN integration
     if args.use_gnn:
-        print("Initializing GNN feature extractor (using fully-connected graph)…")
+        print("Initializing GNN feature extractor (using fully-connected graph)...")
         graph_builder = GraphBuilder(method='fully_connected')
 
         # figure out feature dims from the first batch
