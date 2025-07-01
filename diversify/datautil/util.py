@@ -102,7 +102,6 @@ class mydataset(torch.utils.data.Dataset):
             self.x = (self.x - self.mean) / (self.std + 1e-8)
 
     def __getitem__(self, index):
-        #print("mydataset.transform:", self.transform)   # <--- ADD THIS LINE
         # Convert index to Python int
         if isinstance(index, np.integer):
             index = int(index)
@@ -111,7 +110,6 @@ class mydataset(torch.utils.data.Dataset):
         
         # Get and convert data
         x = self.input_trans(self.x[index])
-        #print("AFTER input_trans, x.shape:", getattr(x, 'shape', None), "| type:", type(x))
         ctarget = self.labels[index] if self.labels is not None else -1
         dtarget = self.dlabels[index] if self.dlabels is not None else -1
         pctarget = self.pclabels[index] if self.pclabels is not None else -1
