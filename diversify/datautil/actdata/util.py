@@ -27,13 +27,26 @@ def act_train():
     ])
 
 def act_to_graph_transform(args):
+    def print_before_permute(x):
+        if not hasattr(print_before_permute, "printed"):
+            print("BEFORE SHAPE CHANGE, x.shape:", x.shape)
+            print_before_permute.printed = True
+        return x
+
+    def print_after_permute(x):
+        if not hasattr(print_after_permute, "printed"):
+            print("AFTER SHAPE CHANGE, x.shape:", x.shape)
+            print_after_permute.printed = True
+        return x
+
     def _to_graph(x):
-        print("IN _to_graph, input x.shape:", x.shape)
-        # x is [200, 8] now
+        if not hasattr(_to_graph, "printed"):
+            print("IN _to_graph, input x.shape:", x.shape)
+            _to_graph.printed = True
         if isinstance(x, torch.Tensor):
             x = x.float()
         data = convert_to_graph(
-            x.unsqueeze(-1),  # [200, 8, 1]
+            x.unsqueeze(-1),
             adjacency_strategy=getattr(args, 'graph_method', 'correlation'),
             threshold=getattr(args, 'graph_threshold', 0.5),
             top_k=getattr(args, 'graph_top_k', 3)
@@ -41,11 +54,12 @@ def act_to_graph_transform(args):
         return data
 
     return transforms.Compose([
-        #transforms.ToTensor(),
+        #transforms.ToTensor(),  # Omit if already a tensor
         StandardScaler(),
-        lambda x: x.view(args.input_shape[0], args.input_shape[2]),  # [8, 200]
-        lambda x: x.permute(1, 0),                                   # [200, 8]
-        lambda x: (print("AFTER SHAPE CHANGE, x.shape:", x.shape), x)[1],
+        print_before_permute,                        # <--- Print before permute (should be [8, 200])
+        lambda x: x.view(args.input_shape[0], args.input_shape[2]),
+        lambda x: x.permute(1, 0),                   # Now becomes [200, 8]
+        print_after_permute,                         # <--- Print after permute ([200, 8])
         _to_graph
     ])
 
