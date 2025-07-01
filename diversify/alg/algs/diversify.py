@@ -171,9 +171,9 @@ class Diversify(Algorithm):
         x = to_device(raw_x, device)
 
         # ─── DEBUG ───
-        if hasattr(x, 'batch'):
-            print("‼️ DEBUG x.batch.min/max:", x.batch.min().item(), x.batch.max().item())
-            print("   expected max < num_graphs =", y.size(0))
+        #if hasattr(x, 'batch'):
+            #print("‼️ DEBUG x.batch.min/max:", x.batch.min().item(), x.batch.max().item())
+            #print("   expected max < num_graphs =", y.size(0))
         # ─────────────
 
         features = self.featurizer(x)
