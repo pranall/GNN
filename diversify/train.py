@@ -88,38 +88,24 @@ def main(args):
             method='correlation', threshold_type='adaptive',
             default_threshold=0.3, adaptive_factor=1.5
         )
-        feat_len = args.input_shape[-1]
+        input_dim = 8  # Number of features per node (after your x shape is [200, 8])
         gnn = TemporalGCN(
-            input_dim=8,
+            input_dim=input_dim,
             hidden_dim=args.gnn_hidden_dim,
             output_dim=args.gnn_output_dim,
             graph_builder=graph_builder
         ).to(device)
         algorithm.featurizer = gnn
 
-        def make_bottleneck(in_dim, out_dim, layers):
-            try:
-                num = int(layers)
-                mods = []
-                for _ in range(num - 1):
-                    mods += [nn.Linear(in_dim, in_dim), nn.ReLU()]
-                mods.append(nn.Linear(in_dim, out_dim))
-                return nn.Sequential(*mods)
-            except:
-                return nn.Linear(in_dim, out_dim)
-
-        in_dim, out_dim = args.gnn_output_dim, int(args.bottleneck)
-        algorithm.bottleneck  = make_bottleneck(in_dim, out_dim, args.layer).to(device)
-        algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
-        algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
-
-        # Smoke test
-        demo_x = torch.randn(8, feat_len, device=device)
-        demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
+        # --- Smoke test ---
+        demo_x = torch.randn(200, 8, device=device)      # [num_nodes, num_node_features]
+        demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)  # No edges (empty graph)
+        demo_b = torch.zeros(200, dtype=torch.long, device=device)   # Single graph in batch
+            demo_data = Data(x=demo_x, edge_index=demo_e, batch=demo_b)
         with torch.no_grad():
-            demo_data = Data(x=demo_x, edge_index=demo_e)
             demo_out = algorithm.featurizer(demo_data)
         print("✅ Quick GNN smoke test output shape:", demo_out.shape)
+
 
     algorithm.train()
     optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr, weight_decay=getattr(args, 'weight_decay', 0))
