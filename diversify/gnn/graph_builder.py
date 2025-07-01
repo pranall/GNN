@@ -4,7 +4,6 @@ from scipy.spatial.distance import pdist, squareform
 from typing import Tuple, Union, List, Optional
 import itertools
 from torch_geometric.nn import GCNConv
-from datautil.actdata.util import convert_to_graph
 
 class GraphBuilder:
     """
@@ -83,8 +82,6 @@ class GraphBuilder:
         T, F = feature_sequence.shape
         device = feature_sequence.device
         
-        return self._create_fully_connected(T).to(device)
-
         # Handle small sequences with star topology
         if T < 5:
             return self._create_star_topology(T).to(device)
