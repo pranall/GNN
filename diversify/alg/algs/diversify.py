@@ -1,196 +1,179 @@
+import os
+import time
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from collections import Counter
-import numpy as np
-from torch.utils.data import Subset
-from torch_geometric.data import Data, Batch
+import torch.optim as optim
+from alg import alg, modelopera
+from utils.util import set_random_seed, get_args, print_args, print_environ
+from datautil.getdataloader_single import get_act_dataloader
+from torch_geometric.data import Data
+from gnn.temporal_gcn import TemporalGCN
+from gnn.graph_builder import GraphBuilder
 
-from alg.modelopera import get_fea
-from alg.algs.base import Algorithm
-from loss.common_loss import Entropylogits
-from network import Adver_network, common_network
-from sklearn.cluster import KMeans
+class DomainAdversarialLoss(nn.Module):
+    def __init__(self, bottleneck_dim):
+        super().__init__()
+        self.classifier = nn.Sequential(
+            nn.Linear(bottleneck_dim, 50),
+            nn.ReLU(),
+            nn.Linear(50, 1)
+        )
+        self.loss_fn = nn.BCEWithLogitsLoss()
 
-# Utility: move tensors or Data objects to device
-def to_device(batch, device):
-    if hasattr(batch, 'to') and not isinstance(batch, torch.Tensor):
-        return batch.to(device)
-    elif isinstance(batch, torch.Tensor):
-        return batch.to(device).float()
-    else:
-        raise ValueError(f"Unknown batch type: {type(batch)}")
+    def forward(self, features, labels):
+        preds = self.classifier(features).squeeze()
+        return self.loss_fn(preds, labels.float())
 
-# Reshape raw EMG tensors for GNN: output [B, C=8, T=200]
-def transform_for_gnn(x):
-    if isinstance(x, (Data, Batch)):
-        return x
-    if x.dim() == 4 and x.size(2) == 1:
-        x = x.squeeze(2)
-    if x.dim() == 3 and x.size(1) != 8:
-        x = x.permute(0, 2, 1)
-    B, C, T = x.shape
-    if T < 200:
-        x = F.pad(x, (0, 0, 0, 200 - T))
-    elif T > 200:
-        x = x[:, :, :200]
+
+def fix_emg_shape(x):
+    """
+    Ensures input x is [batch, 8, 200] for GNN.
+    Accepts: [batch, 1, 200], [batch, 200, 1], [batch, 8, 200], [batch, 200, 8].
+    Returns: [batch, 8, 200]
+    """
+    if isinstance(x, torch.Tensor):
+        if x.dim() == 3:
+            if x.shape[1] == 1 and x.shape[2] == 200:
+                x = x.repeat(1, 8, 1)
+            elif x.shape[1] == 200 and x.shape[2] == 1:
+                x = x.repeat(1, 1, 8).permute(0, 2, 1)
+            elif x.shape[1] == 8 and x.shape[2] == 200:
+                pass
+            elif x.shape[1] == 200 and x.shape[2] == 8:
+                x = x.permute(0, 2, 1)
     return x
 
-class Diversify(Algorithm):
-    def __init__(self, args):
-        super().__init__(args)
-        self.args = args
-        self.featurizer = get_fea(args)
-        # adversarial and classification modules
-        self.dbottleneck    = common_network.feat_bottleneck(self.featurizer.in_features, args.bottleneck, args.layer)
-        self.ddiscriminator = Adver_network.Discriminator(args.bottleneck, args.dis_hidden, args.domain_num)
-        self.dclassifier    = common_network.feat_classifier(args.num_classes, args.bottleneck, args.classifier)
-        self.bottleneck     = common_network.feat_bottleneck(self.featurizer.in_features, args.bottleneck, args.layer)
-        self.classifier     = common_network.feat_classifier(args.num_classes, args.bottleneck, args.classifier)
-        self.abottleneck    = common_network.feat_bottleneck(self.featurizer.in_features, args.bottleneck, args.layer)
-        self.aclassifier    = common_network.feat_classifier(int(args.num_classes * args.latent_domain_num), args.bottleneck, args.classifier)
-        self.discriminator  = Adver_network.Discriminator(args.bottleneck, args.dis_hidden, args.latent_domain_num)
-        self.criterion      = nn.CrossEntropyLoss(label_smoothing=getattr(args, 'label_smoothing', 0.0))
-        self.lambda_cls     = getattr(args, 'lambda_cls', 1.0)
-        self.lambda_dis     = getattr(args, 'lambda_dis', 0.1)
-        self.explain_mode   = False
-        self.global_step    = 0
-        self.patch_skip_connection()
 
-    def patch_skip_connection(self):
-        device = next(self.featurizer.parameters()).device
-        sample = torch.randn(*self.args.input_shape).to(device)
-        with torch.no_grad():
-            if getattr(self.args, "use_gnn", False):
-                node_features   = sample.squeeze(1)        # [8,200]
-                dummy_edge_index = torch.zeros(2,0,device=device,dtype=torch.long)
-                dummy_data       = Data(x=node_features, edge_index=dummy_edge_index)
-                actual           = self.featurizer(dummy_data).shape[-1]
-            else:
-                x      = sample.unsqueeze(0)               # [1,8,1,200]
-                if x.dim()==4 and x.size(2)==1:
-                    x = x.squeeze(2)
-                actual = self.featurizer(x).shape[-1]
+def main(args):
+    set_random_seed(args.seed)
+    print_environ()
+    print(print_args(args, []))
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    if args.use_gnn:
+        print("✅ GNN (TemporalGCN) is active for training.")
+    else:
+        print("⚠️ Using CNN-based baseline model.")
 
-        for name, m in self.featurizer.named_modules():
-            if isinstance(m, nn.Linear) and 'skip' in name.lower():
-                if m.in_features != actual:
-                    new = nn.Linear(actual, m.out_features).to(device)
-                    old_w, old_b = m.weight.data, m.bias.data
-                    if actual < m.in_features:
-                        new.weight.data = old_w[:, :actual].clone()
-                    else:
-                        new.weight.data[:, :m.in_features] = old_w.clone()
-                    new.bias.data = old_b.clone()
-                    parent, attr = name.rsplit('.', 1)
-                    target = self.featurizer.get_submodule(parent) if parent else self.featurizer
-                    setattr(target, attr, new)
-                break
+    os.makedirs(args.output, exist_ok=True)
+    args.steps_per_epoch = min(100, args.batch_size * 10)
 
-    def ensure_correct_dimensions(self, x):
-        if isinstance(x, (Data, Batch)):
-            return x
-        if x.dim() == 3:
-            return x.unsqueeze(2)
-        elif x.dim() == 4:
-            expected = (self.args.input_shape[0], 1, self.args.input_shape[-1])
-            if x.shape[1:] != expected:
-                raise ValueError(f"Unexpected 4D shape: {x.shape}, expected [B{expected}]")
-            return x
-        else:
-            raise ValueError(f"Unsupported x.dim(): {x.dim()}")
+    # Load data loaders
+    train_loader, train_ns_loader, val_loader, test_loader, *_ = get_act_dataloader(args)
 
-    def update_d(self, batch, opt):
-        x, c, d = batch
-        device = next(self.parameters()).device
-        x = to_device(x, device)
-        c = c.to(device).long()
-        d = d.to(device).long().clamp(0, self.args.domain_num - 1)
+    # Debug first batch
+    batch = next(iter(train_loader))
+    x, y, d = batch
+    print("🔎 BATCH X type     :", type(x))
+    if hasattr(x, 'x'):
+        print(" x.x.shape          :", x.x.shape)
+        print(" x.edge_index.shape:", x.edge_index.shape)
+        print(" x.batch.shape      :", x.batch.shape)
+    else:
+        print(" raw tensor shape   :", x.shape)
+    print(" labels y.shape     :", y.shape)
+    print(" domains d.shape    :", d.shape)
 
-        # feature → bottleneck → adversarial branch
-        z        = self.dbottleneck(self.featurizer(x))
-        d_in     = Adver_network.ReverseLayerF.apply(z, self.args.alpha1)
-        d_out    = self.ddiscriminator(d_in)
-        c_out    = self.dclassifier(z)
+    # Initialize algorithm
+    AlgoClass = alg.get_algorithm_class(args.algorithm)
+    algorithm = AlgoClass(args).to(device)
 
-        # loss components
-        dis_loss = F.cross_entropy(d_out, d) * self.lambda_dis
-        ent_loss = Entropylogits(c_out) * self.args.lam
-        cls_loss = self.criterion(c_out, c)
-        total    = dis_loss + ent_loss + cls_loss
-
-        opt.zero_grad()
-        total.backward()
-        opt.step()
-
-        return {
-            'dis':   dis_loss.item(),
-            'ent':   ent_loss.item(),
-            'total': total.item()
-        }
-
-    def set_dlabel(self, loader):
-        self.featurizer.eval()
-        feats, idxs = [], []
-        device = next(self.parameters()).device
-        base = 0
-        with torch.no_grad():
-            for batch in loader:
-                x = to_device(batch[0], device)
-                f = self.dbottleneck(self.featurizer(x)).cpu()
-                feats.append(f.numpy())
-                idxs.append(np.arange(base, base+f.size(0)))
-                base += f.size(0)
-        labels = Counter(
-            KMeans(n_clusters=self.args.latent_domain_num, random_state=42)
-            .fit_predict(np.vstack(feats))
+    # GNN integration
+    if args.use_gnn:
+        print("Initializing GNN feature extractor...")
+        graph_builder = GraphBuilder(
+            method='correlation', threshold_type='adaptive',
+            default_threshold=0.3, adaptive_factor=1.5
         )
-        ds = loader.dataset
-        ds.set_labels_by_index(
-            torch.tensor(list(labels.keys())),
-            torch.tensor(list(labels.values())),
-            'pdlabel'
-        )
-        print(f"Pseudo-domain labels set: {labels}")
-        self.featurizer.train()
+        feat_len = args.input_shape[-1]
+        gnn = TemporalGCN(
+            input_dim=feat_len,
+            hidden_dim=args.gnn_hidden_dim,
+            output_dim=args.gnn_output_dim,
+            graph_builder=graph_builder
+        ).to(device)
+        algorithm.featurizer = gnn
 
-    def update(self, batch, opt):
-        x, y = batch
-        x = to_device(x, next(self.parameters()).device)
-        x = self.ensure_correct_dimensions(x) if not hasattr(x, 'x') else x
-        out  = self.classifier(self.bottleneck(self.featurizer(x)))
-        loss = self.criterion(out, y.to(out.device).long())
-        opt.zero_grad(); loss.backward(); opt.step()
-        return {'class': loss.item()}
+        def make_bottleneck(in_dim, out_dim, layers):
+            try:
+                num = int(layers)
+                mods = []
+                for _ in range(num - 1):
+                    mods += [nn.Linear(in_dim, in_dim), nn.ReLU()]
+                mods.append(nn.Linear(in_dim, out_dim))
+                return nn.Sequential(*mods)
+            except:
+                return nn.Linear(in_dim, out_dim)
 
-    def update_a(self, minibatches, opt):
-        device    = next(self.parameters()).device
-        raw_x, y, d = minibatches[0], minibatches[1], minibatches[2]
-        y = y.to(device).long()
-        d = d.to(device).long().clamp(0, self.args.latent_domain_num - 1)
-        x = to_device(raw_x, device)
-        features = self.featurizer(x)
-        z        = self.abottleneck(features)
-        preds    = self.aclassifier(z)
-        maxc     = self.aclassifier.fc.out_features
-        yc       = (d * self.args.num_classes + y).clamp(0, maxc - 1)
+        in_dim, out_dim = args.gnn_output_dim, int(args.bottleneck)
+        algorithm.bottleneck  = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+        algorithm.abottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
+        algorithm.dbottleneck = make_bottleneck(in_dim, out_dim, args.layer).to(device)
 
-        if preds.size(0) != yc.size(0):
-            B = yc.size(0)
-            T = preds.size(0)//B
-            preds = preds.view(B, T, -1).mean(1)
+        # Smoke test
+        demo_x = torch.randn(8, feat_len, device=device)
+        demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)
+        with torch.no_grad():
+            demo_data = Data(x=demo_x, edge_index=demo_e)
+            demo_out = algorithm.featurizer(demo_data)
+        print("✅ Quick GNN smoke test output shape:", demo_out.shape)
 
-        loss = F.cross_entropy(preds, yc)
-        opt.zero_grad(); loss.backward(); opt.step()
-        return {'class': loss.item()}
+    algorithm.train()
+    optimizer = optim.AdamW(algorithm.parameters(), lr=args.lr, weight_decay=getattr(args, 'weight_decay', 0))
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_epoch)
+    if getattr(args, 'domain_adv_weight', 0) > 0:
+        algorithm.domain_adv_loss = DomainAdversarialLoss(int(args.bottleneck)).to(device)
 
-    def predict(self, x):
-        x = to_device(x, next(self.parameters()).device)
-        x = self.ensure_correct_dimensions(x) if not hasattr(x, 'x') else x
-        return self.classifier(self.bottleneck(self.featurizer(x)))
+    logs = {k: [] for k in ['train_acc','val_acc','test_acc','class_loss','dis_loss','ent_loss','total_loss']}
+    best_val = 0.0
 
-    def forward(self, batch):
-        return self.predict(batch[0])
+    for epoch in range(1, args.max_epoch+1):
+        start_time = time.time()
 
-    def explain(self, x):
-        return self.predict(x)
+        # 1) Feature update
+        for x, y, d in train_loader:
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_a([x, y, d, y, d], optimizer)
+            logs['class_loss'].append(res['class'])
+
+        # 2) Domain‐discriminator update
+        for x, y, d in train_loader:
+            x, y, d = x.to(device), y.to(device), d.to(device)
+            res = algorithm.update_d([x, y, d], optimizer)
+            logs['dis_loss'].append(res['dis'])
+            logs['ent_loss'].append(res['ent'])
+            logs['total_loss'].append(res['total'])
+
+        # 3) Domain‐invariant feature learning
+        for x, y, _ in train_loader:
+            x, y = x.to(device), y.to(device)
+            _ = algorithm.update((x, y), optimizer)
+
+        # Evaluation
+        acc_fn = modelopera.accuracy
+        logs['train_acc'].append(acc_fn(algorithm, train_ns_loader, device))
+        logs['val_acc'].append  (acc_fn(algorithm, val_loader, device))
+        logs['test_acc'].append (acc_fn(algorithm, test_loader, device))
+
+        scheduler.step()
+        if logs['val_acc'][-1] > best_val:
+            best_val = logs['val_acc'][-1]
+            torch.save(algorithm.state_dict(), os.path.join(args.output, 'best_model.pth'))
+
+        print(f"Epoch {epoch}/{args.max_epoch} — "
+              f"Train: {logs['train_acc'][-1]:.4f}, "
+              f"Val: {logs['val_acc'][-1]:.4f}, "
+              f"Time: {time.time()-start_time:.1f}s")
+
+    print(f"Training complete. Best validation accuracy: {best_val:.4f}")
+
+if __name__ == '__main__':
+    args = get_args()
+    if not hasattr(args, 'use_gnn'):
+        args.use_gnn = False
+    if args.use_gnn:
+        args.gnn_hidden_dim = getattr(args, 'gnn_hidden_dim', 64)
+        args.gnn_output_dim = getattr(args, 'gnn_output_dim', 256)
+    if not hasattr(args, 'latent_domain_num') or args.latent_domain_num is None:
+        args.latent_domain_num = 4
+    main(args)
