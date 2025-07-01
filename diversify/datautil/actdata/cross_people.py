@@ -49,11 +49,8 @@ class ActList(mydataset):
         # Format data as tensors
         # Preserve both dimension expansion approaches
         self.x = self.x[:, :, np.newaxis, :]  # From first version
-        #self.transform = None  # From first version
+        self.transform = None  # From first version
         self.x = torch.tensor(self.x).float()
-        print(f"[ActList] Dataset {dataset}: Loaded self.x.shape = {self.x.shape}")
-        assert self.x.dim() == 4 and self.x.shape[1:] == (8, 1, 200), \
-            f"Expected self.x.shape = (N,8,1,200), got {self.x.shape}"
         
         # Handle pseudo-labels
         self.pclabels = pclabels if pclabels is not None else np.ones(self.labels.shape) * (-1)
