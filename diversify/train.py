@@ -90,7 +90,7 @@ def main(args):
         )
         feat_len = args.input_shape[-1]
         gnn = TemporalGCN(
-            input_dim=feat_len,
+            input_dim=8,
             hidden_dim=args.gnn_hidden_dim,
             output_dim=args.gnn_output_dim,
             graph_builder=graph_builder
