@@ -28,6 +28,7 @@ def act_train():
 
 def act_to_graph_transform(args):
     def _to_graph(x):
+        print("IN _to_graph, input x.shape:", x.shape)
         # x is [200, 8] now
         if isinstance(x, torch.Tensor):
             x = x.float()
