@@ -101,7 +101,7 @@ def main(args):
         demo_x = torch.randn(200, 8, device=device)      # [num_nodes, num_node_features]
         demo_e = torch.zeros(2, 0, dtype=torch.long, device=device)  # No edges (empty graph)
         demo_b = torch.zeros(200, dtype=torch.long, device=device)   # Single graph in batch
-            demo_data = Data(x=demo_x, edge_index=demo_e, batch=demo_b)
+        demo_data = Data(x=demo_x, edge_index=demo_e, batch=demo_b)
         with torch.no_grad():
             demo_out = algorithm.featurizer(demo_data)
         print("✅ Quick GNN smoke test output shape:", demo_out.shape)
