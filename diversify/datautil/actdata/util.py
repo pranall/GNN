@@ -41,7 +41,7 @@ def act_to_graph_transform(args):
         return data
 
     return transforms.Compose([
-        transforms.ToTensor(),
+        #transforms.ToTensor(),
         StandardScaler(),
         lambda x: x.view(args.input_shape[0], args.input_shape[2]),  # [8, 200]
         lambda x: x.permute(1, 0),                                   # [200, 8]
