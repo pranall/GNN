@@ -4,86 +4,132 @@ from torch_geometric.data import Data
 from scipy.spatial.distance import euclidean
 from fastdtw import fastdtw  # For Dynamic Time Warping
 
-def convert_to_graph(batch_data, adjacency_strategy='correlation', threshold=0.3, top_k=None):
+def convert_to_graph(sensor_data, adjacency_strategy='fully_connected', threshold=0.5, top_k=None):
     """
-    Optimized graph construction for EMG data (shape: [batch, timesteps, channels])
-    
+    Convert sensor data to graph representation for GNN models
     Args:
-        batch_data: Input tensor of shape [batch_size, 200, 8]
-        adjacency_strategy: 'correlation' or 'fully_connected'
-        threshold: Minimum correlation for edges (0.3 works best for EMG)
-        top_k: Not used (for compatibility)
-        
+        sensor_data: Tensor of shape (num_sensors, timesteps, features)
+        adjacency_strategy: Graph construction method ('fully_connected', 'correlation', 'knn', 'top_k_correlation', 'dtw')
+        threshold: Correlation threshold for 'correlation' strategy
+        top_k: Number of top neighbors for 'top_k_correlation' strategy
     Returns:
-        PyG Data object with:
-        - x: Node features [batch*8, 3] (mean, std, fft)
-        - edge_index: Graph connections [2, num_edges]
-        - batch: Graph indices [batch*8]
+        PyG Data object with node features, edge indices, and edge attributes
     """
-    batch_size, timesteps, num_channels = batch_data.shape
-    
-    # 1. Extract powerful EMG features per channel
-    means = batch_data.mean(dim=1)  # [batch, 8]
-    stds = batch_data.std(dim=1)    # [batch, 8]
-    fft = torch.fft.fft(batch_data, dim=1).abs().mean(dim=1)  # [batch, 8]
-    
-    # Stack features: [batch, 8, 3] -> [batch*8, 3]
-    x = torch.stack([means, stds, fft], dim=2).reshape(-1, 3)
-    
-    # 2. Build edges based on strategy
-    if adjacency_strategy == 'correlation':
+    num_nodes = sensor_data.shape[0]
+    timesteps = sensor_data.shape[1]
+    num_features = sensor_data.shape[2]
+
+    # Node features: flatten time series
+    x = sensor_data.reshape(num_nodes, -1)  # Shape: [num_nodes, timesteps*features]
+    flat_data_np = x.cpu().numpy()
+
+    # Edge construction
+    if adjacency_strategy == 'fully_connected':
+        # Create edges between all node pairs (except self)
         edge_index = []
-        for b in range(batch_size):
-            # Compute channel correlations
-            channels = batch_data[b].permute(1, 0)  # [8, 200]
-            corr = torch.corrcoef(channels)         # [8, 8]
-            
-            # Add edges for correlated channels
-            for i in range(8):
-                for j in range(8):
-                    if i != j and corr[i,j] > threshold:
-                        src = b*8 + i
-                        dst = b*8 + j
-                        edge_index.append([src, dst])
-        
-        edge_index = torch.tensor(edge_index).t().contiguous() if edge_index else \
-                    torch.tensor([[i for i in range(8*batch_size)], 
-                                 [i for i in range(8*batch_size)]]).contiguous()
-    
-    elif adjacency_strategy == 'fully_connected':
-        # Connect all channels within sample
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                if i != j:
+                    edge_index.append([i, j])
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        edge_attr = None
+
+    elif adjacency_strategy == 'correlation':
+        # Compute correlation matrix between sensors
+        corr_matrix = np.corrcoef(flat_data_np)
+
+        # Create edges based on correlation threshold
         edge_index = []
-        for b in range(batch_size):
-            for i in range(8):
-                for j in range(8):
-                    if i != j:
-                        edge_index.append([b*8 + i, b*8 + j])
-        edge_index = torch.tensor(edge_index).t().contiguous()
-    
+        edge_weight = []
+        for i in range(num_nodes):
+            for j in range(i+1, num_nodes):
+                if abs(corr_matrix[i, j]) > threshold:
+                    edge_index.append([i, j])
+                    edge_index.append([j, i])  # Undirected graph
+                    weight = abs(corr_matrix[i, j])
+                    edge_weight.extend([weight, weight])
+
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+
+    elif adjacency_strategy == 'top_k_correlation':
+        # Compute correlation matrix
+        corr_matrix = np.corrcoef(flat_data_np)
+        abs_corr = np.abs(corr_matrix)
+        np.fill_diagonal(abs_corr, 0)  # Remove self-correlation
+
+        # Create edges based on top-k correlations
+        edge_index = []
+        edge_weight = []
+        for i in range(num_nodes):
+            top_k_indices = np.argsort(abs_corr[i])[-top_k:]
+            for j in top_k_indices:
+                edge_index.append([i, j])
+                edge_index.append([j, i])
+                weight = abs_corr[i, j]
+                edge_weight.extend([weight, weight])
+
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+
+    elif adjacency_strategy == 'knn':
+        # K-nearest neighbors with distance-based edge weights
+        from sklearn.neighbors import kneighbors_graph
+        knn_graph = kneighbors_graph(flat_data_np, n_neighbors=3, mode='distance', include_self=False)
+
+        edge_index = []
+        edge_weight = []
+        rows, cols = knn_graph.nonzero()
+        for i, j in zip(rows, cols):
+            dist = knn_graph[i, j]
+            weight = 1.0 / (1.0 + dist)  # Convert distance to similarity
+            edge_index.append([i, j])
+            edge_index.append([j, i])  # Make undirected
+            edge_weight.extend([weight, weight])
+
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+
+    elif adjacency_strategy == 'dtw':
+        # Dynamic Time Warping distance
+        edge_index = []
+        edge_weight = []
+        dtw_matrix = np.zeros((num_nodes, num_nodes))
+
+        # Compute DTW distance matrix
+        for i in range(num_nodes):
+            for j in range(i+1, num_nodes):
+                # Use original time-series shape (timesteps, features)
+                dist, _ = fastdtw(
+                    sensor_data[i].cpu().numpy(),
+                    sensor_data[j].cpu().numpy(),
+                    dist=euclidean
+                )
+                dtw_matrix[i, j] = dist
+                dtw_matrix[j, i] = dist
+
+        # Normalize and convert to similarity
+        max_dist = np.max(dtw_matrix)
+        if max_dist > 0:
+            dtw_sim = 1.0 - (dtw_matrix / max_dist)
+        else:
+            dtw_sim = np.ones_like(dtw_matrix)
+
+        # Create edges based on top-k DTW similarities
+        for i in range(num_nodes):
+            top_k_indices = np.argsort(dtw_sim[i])[-top_k:]
+            for j in top_k_indices:
+                if i == j:
+                    continue
+                edge_index.append([i, j])
+                edge_index.append([j, i])
+                weight = dtw_sim[i, j]
+                edge_weight.extend([weight, weight])
+
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        edge_attr = torch.tensor(edge_weight, dtype=torch.float).unsqueeze(1) if edge_weight else None
+
     else:
-        raise ValueError(f"Unsupported strategy: {adjacency_strategy}")
+        raise ValueError(f"Unknown adjacency strategy: {adjacency_strategy}")
 
-    return Data(
-        x=x,
-        edge_index=edge_index,
-        batch=torch.arange(batch_size).repeat_interleave(8),
-        edge_attr=None
-    )
-
-# Test function to verify implementation
-def test_graph_conversion():
-    """Run this to validate your graph construction"""
-    test_data = torch.randn(64, 200, 8)  # Batch of 64 samples
-    graph = convert_to_graph(test_data)
-    
-    print("=== TEST RESULTS ===")
-    print(f"✅ Node features shape: {graph.x.shape} (expected [512, 3])")
-    print(f"✅ Edge index shape: {graph.edge_index.shape} (should be [2, E])")
-    print(f"✅ Sample edges (first 5):\n{graph.edge_index[:, :5]}")
-    print(f"✅ Batch indices:\n{graph.batch[:16]} (first 2 samples)")
-    
-    if graph.edge_index.shape[1] == 8*64:
-        print("⚠️ Warning: Only self-loops detected. Try lowering threshold.")
-
-if __name__ == '__main__':
-    test_graph_conversion()
+    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
