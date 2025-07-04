@@ -71,7 +71,9 @@ class SafeSubset(Subset):
                 return data
 
 def collate_gnn(batch):
+    debug_timer("collate_gnn START")
     if isinstance(batch[0], Data):
+        debug_timer("collate_gnn END (Data)")
         # All elements are Data objects
         return Batch.from_data_list(batch)
     elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
@@ -85,6 +87,7 @@ def collate_gnn(batch):
         batched = Batch.from_data_list(datas)
         ys = torch.tensor(ys, dtype=torch.long)
         ds = torch.tensor(ds, dtype=torch.long)
+        debug_timer("collate_gnn END (tuple Data)")
         return batched, ys, ds
     else:
         raise ValueError("Unsupported batch format for collate_gnn")
