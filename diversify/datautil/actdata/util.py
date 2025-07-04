@@ -2,6 +2,9 @@ from torchvision import transforms
 import numpy as np
 import torch
 from datautil.graph_utils import convert_to_graph
+import time
+def debug_timer(msg):
+    print(f"[⏰] {msg} @ {time.strftime('%H:%M:%S')}")
 
 class StandardScaler:
     """Normalize sensor data channel-wise"""
