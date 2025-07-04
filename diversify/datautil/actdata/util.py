@@ -40,6 +40,7 @@ def act_to_graph_transform(args):
         return x
 
     def _to_graph(x):
+        debug_timer("START _to_graph")
         if not hasattr(_to_graph, "printed"):
             print("IN _to_graph, input x.shape:", x.shape)
             _to_graph.printed = True
@@ -51,6 +52,7 @@ def act_to_graph_transform(args):
             threshold=getattr(args, 'graph_threshold', 0.5),
             top_k=getattr(args, 'graph_top_k', 3)
         )
+        debug_timer("END _to_graph")
         return data
 
     return transforms.Compose([
