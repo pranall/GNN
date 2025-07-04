@@ -115,28 +115,41 @@ def main(args):
 
     logs = {k: [] for k in ['train_acc','val_acc','test_acc','class_loss','dis_loss','ent_loss','total_loss']}
     best_val = 0.0
-
+    print(">>> ABOUT TO START EPOCH LOOP", flush=True)
     for epoch in range(1, args.max_epoch+1):
         start_time = time.time()
+        print(f"--- EPOCH {epoch} START ---", flush=True)
 
         # 1) Feature update
+        print("  Feature update loop...", flush=True)
         for x, y, d in train_loader:
+            print("BATCH PROCESSED, about to start model step", flush=True)
+            print("    Batch loaded (feature update)", flush=True)
             x, y, d = x.to(device), y.to(device), d.to(device)
             res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
+        print("  Feature update loop DONE.", flush=True)
 
         # 2) Domain‐discriminator update
+        print("  Domain-discriminator update loop...", flush=True)
         for x, y, d in train_loader:
+            print("    Batch loaded (domain-discriminator)", flush=True)
             x, y, d = x.to(device), y.to(device), d.to(device)
             res = algorithm.update_d([x, y, d], optimizer)
             logs['dis_loss'].append(res['dis'])
             logs['ent_loss'].append(res['ent'])
             logs['total_loss'].append(res['total'])
+        print("  Domain-discriminator update loop DONE.", flush=True)
 
         # 3) Domain‐invariant feature learning
+        print("  Domain-invariant feature learning loop...", flush=True)
         for x, y, _ in train_loader:
+            print("    Batch loaded (domain-invariant)", flush=True)
             x, y = x.to(device), y.to(device)
             _ = algorithm.update((x, y), optimizer)
+        print("  Domain-invariant feature learning loop DONE.", flush=True)
+
+        print(f"--- EPOCH {epoch} END ---", flush=True)
 
         # Evaluation
         acc_fn = modelopera.accuracy
