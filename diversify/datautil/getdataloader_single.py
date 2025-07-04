@@ -96,7 +96,7 @@ def collate_gnn(batch):
     else:
         raise ValueError("Unsupported batch format for collate_gnn")
 
-def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=True):
+def get_gnn_dataloader(dataset, batch_size, num_workers, shuffle=False):
     return DataLoader(dataset=dataset, batch_size=batch_size,
                       num_workers=num_workers, shuffle=shuffle,
                       drop_last=shuffle, collate_fn=collate_gnn)
@@ -113,14 +113,14 @@ def get_dataloader(args, tr, val, tar):
 
     if is_graph_data:
         return (
-            get_gnn_dataloader(tr, args.batch_size, args.N_WORKERS, shuffle=True),
+            get_gnn_dataloader(tr, args.batch_size, args.N_WORKERS, shuffle=False),
             get_gnn_dataloader(tr, args.batch_size, args.N_WORKERS, shuffle=False),
             get_gnn_dataloader(val, args.batch_size, args.N_WORKERS, shuffle=False),
             get_gnn_dataloader(tar, args.batch_size, args.N_WORKERS, shuffle=False),
         )
 
     return (
-        DataLoader(tr, batch_size=args.batch_size, num_workers=args.N_WORKERS, shuffle=True),
+        DataLoader(tr, batch_size=args.batch_size, num_workers=args.N_WORKERS, shuffle=False),
         DataLoader(tr, batch_size=args.batch_size, num_workers=args.N_WORKERS, shuffle=False),
         DataLoader(val, batch_size=args.batch_size, num_workers=args.N_WORKERS, shuffle=False),
         DataLoader(tar, batch_size=args.batch_size, num_workers=args.N_WORKERS, shuffle=False),
