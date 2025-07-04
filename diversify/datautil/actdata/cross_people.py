@@ -2,6 +2,11 @@ from datautil.actdata.util import *
 from datautil.util import mydataset, Nmax
 import numpy as np
 import torch
+import time
+
+def debug_timer(msg):
+    print(f"[⏰] {msg} @ {time.strftime('%H:%M:%S')}")
+
 
 class ActList(mydataset):
     """
@@ -55,6 +60,7 @@ class ActList(mydataset):
         self._print_count = 0
 
     def __getitem__(self, idx):
+        debug_timer(f"__getitem__ START idx={idx}")
         x = self.x[idx]
         if self.transform is not None:
             x = self.transform(x)
@@ -65,6 +71,7 @@ class ActList(mydataset):
         y = int(self.labels[idx])
         # Use actual domain label if needed
         d = int(self.dlabels[idx]) if hasattr(self, "dlabels") else 0
+        debug_timer(f"__getitem__ END idx={idx}")
         return x, y, d
 
     def comb_position(self, x, cy, py, sy):
