@@ -168,6 +168,8 @@ def get_act_dataloader(args):
     indextr, indexval = indexall[ted:], indexall[:ted]
 
     tr = SafeSubset(source_data, indextr)
+    # Only use the first 100 samples for fast debugging
+    tr = torch.utils.data.Subset(tr, range(100))
     val = SafeSubset(source_data, indexval)
 
     targetdata = combindataset(args, target_datalist)
