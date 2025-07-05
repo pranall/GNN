@@ -233,7 +233,14 @@ def get_args():
     args = parser.parse_args()
     
     # Post-processing
-    args.steps_per_epoch = 10000000000  # Large number, will be adjusted later
+    #args.steps_per_epoch = None  # Let train.py handle it
+    #args.steps_per_epoch = 10000000000  # Large number, will be adjusted later
+    #if not hasattr(args, 'steps_per_epoch') or args.steps_per_epoch is None:
+        #args.steps_per_epoch = min(100, args.batch_size * 10)  # Match train.py logic
+    #args.data_dir = os.path.join(args.data_file, args.data_dir)
+    # Post-processing for training parameters
+    if getattr(args, 'steps_per_epoch', None) is None:
+        args.steps_per_epoch = min(100, args.batch_size * 10)  # Default training logic
     args.data_dir = os.path.join(args.data_file, args.data_dir)
     
     # Setup environment
