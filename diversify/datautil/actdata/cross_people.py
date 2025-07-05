@@ -7,7 +7,6 @@ import time
 def debug_timer(msg):
     print(f"[⏰] {msg} @ {time.strftime('%H:%M:%S')}")
 
-
 class ActList(mydataset):
     """
     Dataset class for cross-person activity recognition
@@ -16,7 +15,6 @@ class ActList(mydataset):
     def __init__(self, args, dataset, root_dir, people_group, group_num, 
                  transform=None, target_transform=None, pclabels=None, 
                  pdlabels=None, shuffle_grid=True):
-        
         """
         Initialize dataset
         """
@@ -59,7 +57,15 @@ class ActList(mydataset):
         # For anti-spam printing
         self._print_count = 0
 
+        # === GRAPH CACHE for speeding up transforms ===
+        self._graph_cache = {}
+
     def __getitem__(self, idx):
+        # ---- CACHING LOGIC ----
+        if idx in self._graph_cache:
+            return self._graph_cache[idx]
+        # -----------------------
+
         debug_timer(f"__getitem__ START idx={idx}")
         x = self.x[idx]
         if self.transform is not None:
@@ -69,10 +75,12 @@ class ActList(mydataset):
                 print("IN ActList __getitem__, x after transform:", x.shape if hasattr(x, "shape") else type(x))
                 self._print_count += 1
         y = int(self.labels[idx])
-        # Use actual domain label if needed
         d = int(self.dlabels[idx]) if hasattr(self, "dlabels") else 0
         debug_timer(f"__getitem__ END idx={idx}")
-        return x, y, d
+        out = (x, y, d)
+        # ---- STORE IN CACHE ----
+        self._graph_cache[idx] = out
+        return out
 
     def comb_position(self, x, cy, py, sy):
         """
