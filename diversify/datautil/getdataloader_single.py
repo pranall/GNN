@@ -74,25 +74,42 @@ class SafeSubset(Subset):
             except:
                 return data
 
-def collate_gnn(batch):
-    debug_timer("collate_gnn START")
-    if isinstance(batch[0], Data):
-        debug_timer("collate_gnn END (Data)")
+#def collate_gnn(batch):
+    #debug_timer("collate_gnn START")
+    #if isinstance(batch[0], Data):
+        #debug_timer("collate_gnn END (Data)")
         # All elements are Data objects
+        #return Batch.from_data_list(batch)
+    #elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
+        #datas, ys, ds = [], [], []
+        #for data, y, d in batch:
+            #data.y = torch.tensor(y, dtype=torch.long) if not hasattr(data, "y") else data.y
+            #data.domain = torch.tensor(d, dtype=torch.long) if not hasattr(data, "domain") else data.domain
+            #datas.append(data)
+            #ys.append(y)
+            #ds.append(d)
+        #batched = Batch.from_data_list(datas)
+        #ys = torch.tensor(ys, dtype=torch.long)
+        #ds = torch.tensor(ds, dtype=torch.long)
+        #debug_timer("collate_gnn END (tuple Data)")
+        #return batched, ys, ds
+    #else:
+        #raise ValueError("Unsupported batch format for collate_gnn")
+def collate_gnn(batch):
+    if isinstance(batch[0], Data):
         return Batch.from_data_list(batch)
+    
     elif isinstance(batch[0], tuple) and isinstance(batch[0][0], Data):
-        datas, ys, ds = [], [], []
-        for data, y, d in batch:
-            data.y = torch.tensor(y, dtype=torch.long) if not hasattr(data, "y") else data.y
-            data.domain = torch.tensor(d, dtype=torch.long) if not hasattr(data, "domain") else data.domain
-            datas.append(data)
-            ys.append(y)
-            ds.append(d)
+        # Unpack all tuples in parallel (faster than looping)
+        datas, ys, ds = zip(*batch)  
+        
+        # Batch graphs and convert labels/domains to tensors in one go
         batched = Batch.from_data_list(datas)
         ys = torch.tensor(ys, dtype=torch.long)
         ds = torch.tensor(ds, dtype=torch.long)
-        debug_timer("collate_gnn END (tuple Data)")
+        
         return batched, ys, ds
+    
     else:
         raise ValueError("Unsupported batch format for collate_gnn")
 
