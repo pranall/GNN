@@ -155,7 +155,9 @@ def get_act_dataloader(args):
         else:
             source_datasetlist.append(tdata)
 
-    source_data = combindataset(args, source_datasetlist)
+    source_data = source_datasetlist[0]  # Use first source domain only
+    if len(source_datasetlist) > 1:
+        print(f"⚠️ Using only first source domain. Ignoring {len(source_datasetlist)-1} additional domains")
     source_data = ConsistentFormatWrapper(source_data)
 
     # Train/val split
