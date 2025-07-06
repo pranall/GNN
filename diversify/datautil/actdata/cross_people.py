@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import os
 from tqdm import tqdm
+from torch_geometric.data import Data
 
 class ActList(mydataset):
     """
