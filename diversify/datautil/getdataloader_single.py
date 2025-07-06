@@ -144,6 +144,14 @@ def get_dataloader(args, tr, val, tar):
     )
 
 def get_act_dataloader(args):
+    # Load or compute graphs
+    if os.path.exists(GRAPH_CACHE_PATH) and not args.debug_mode:
+        print("🚀 Loading precomputed graphs from cache...")
+        graphs = torch.load(GRAPH_CACHE_PATH)
+        dataset = ActList(args, ..., precomputed_graphs=graphs)  # Modified ActList
+    else:
+        dataset = ActList(args, ...)
+        torch.save(dataset.graphs, GRAPH_CACHE_PATH)
     task = task_act[args.task]
     tmpp = args.act_people[args.dataset]
     args.domain_num = len(tmpp)
