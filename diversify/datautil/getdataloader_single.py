@@ -12,9 +12,9 @@ import datautil.actdata.cross_people as cross_people
 from datautil.util import combindataset, subdataset
 from datautil.graph_utils import convert_to_graph
 from datautil.actdata import cross_people as pcross_act
-import time
-def debug_timer(msg):
-    print(f"[⏰] {msg} @ {time.strftime('%H:%M:%S')}")
+#import time
+#def debug_timer(msg):
+    #print(f"[⏰] {msg} @ {time.strftime('%H:%M:%S')}")
 
 
 # Task mapping
