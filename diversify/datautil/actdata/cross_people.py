@@ -16,6 +16,9 @@ class ActList(mydataset):
         """
         Initialize dataset with enhanced graph precomputation
         """
+        self.graphs = precomputed_graphs
+        if self.graphs is None:
+            self.precompute_graphs(args)
         super(ActList, self).__init__(args)
         
         self.domain_num = 0
