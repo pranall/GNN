@@ -1,10 +1,10 @@
 from datautil.actdata.util import *
 from datautil.util import mydataset, Nmax
 import numpy as np
+from torch_geometric.data import Data
 import torch
 import os
 from tqdm import tqdm
-from torch_geometric.data import Data
 
 class ActList(mydataset):
     """
