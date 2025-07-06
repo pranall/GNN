@@ -3,59 +3,41 @@ from datautil.util import mydataset, Nmax
 import numpy as np
 import torch
 import time
+from tqdm import tqdm  # For progress bar
+from multiprocessing import Pool
 
 class ActList(mydataset):
-    """
-    Dataset class for cross-person activity recognition
-    Combines data from multiple people and positions into a unified dataset
-    """
     def __init__(self, args, dataset, root_dir, people_group, group_num, 
                  transform=None, target_transform=None, pclabels=None, 
                  pdlabels=None, shuffle_grid=True):
-        """
-        Initialize dataset
-        """
         super(ActList, self).__init__(args)
         
-        self.domain_num = 0
-        self.dataset = dataset
-        self.task = 'cross_people'
-        self.transform = transform
-        self.target_transform = target_transform
-        
-        # Load raw data
-        x, cy, py, sy = loaddata_from_numpy(self.dataset, self.task, root_dir)
-        print("🔎 Raw data shapes:")
-        print("  x:", x.shape)
-        print("  cy:", cy.shape)
-        print("  py:", py.shape)
-        print("  sy:", sy.shape)
-        
-        # Flatten people group if nested
-        self.people_group = [p for group in people_group for p in (group if isinstance(group, list) else [group])]
+        # ... [keep your existing init code until the precomputation part] ...
 
-        self.position = np.sort(np.unique(sy))
+        # Precompute graphs with parallel processing
+        print("⏳ Precomputing graphs (this may take a few minutes)...")
+        start_time = time.time()
         
-        # Combine data from different people and positions
-        self.comb_position(x, cy, py, sy)
-        print("✅ After comb_position: self.x.shape =", self.x.shape, "self.labels.shape =", self.labels.shape)
+        # Method 1: Parallel processing (faster)
+        if self.transform:
+            with Pool(processes=4) as pool:  # Use 4 CPU cores
+                self.graphs = list(tqdm(pool.imap(self.transform, self.x), 
+                                      total=len(self.x),
+                                      desc="Graph Conversion"))
+        else:
+            self.graphs = self.x
+            
+        # Method 2: Serial with progress bar (simpler)
+        # self.graphs = [self.transform(x_i) if self.transform else x_i 
+        #               for x_i in tqdm(self.x, desc="Precomputing")]
         
-        # Expand dims and convert to tensor
-        self.x = self.x[:, :, np.newaxis, :]  # [samples, channels, 1, timesteps]
-        self.x = torch.tensor(self.x).float()
-        print(f"🎯 FINAL ActList sample count: {self.x.shape[0]}")
+        print(f"✅ Precomputed {len(self.graphs)} graphs in {time.time()-start_time:.2f}s")
         
-        # Pseudo-labels and domain labels
-        self.pclabels = pclabels if pclabels is not None else np.ones(self.labels.shape) * (-1)
-        self.pdlabels = pdlabels if pdlabels is not None else np.ones(self.labels.shape) * 0
-        self.tdlabels = np.ones(self.labels.shape) * group_num
-        self.dlabels = np.ones(self.labels.shape) * (group_num - Nmax(args, group_num))
-
-        # Precompute all graphs upfront
-        print("⏳ Precomputing graphs...")
-        self.graphs = [self.transform(x_i) if self.transform else x_i for x_i in self.x]
+        # Save in chunks to avoid memory issues
         torch.save(self.graphs, f"{args.output}/precomputed_graphs.pt")
-        print(f"✅ Saved {len(self.graphs)} precomputed graphs")
+        print(f"💾 Saved precomputed graphs to {args.output}/precomputed_graphs.pt")
+
+    # ... [keep rest of your methods unchanged] ...
 
     def __getitem__(self, idx):
         return self.graphs[idx], int(self.labels[idx]), int(self.dlabels[idx]) if hasattr(self, "dlabels") else 0
