@@ -175,7 +175,7 @@ def get_act_dataloader(args):
     print(f"\n📊 Dataset sizes - Train: {len(tr)}, Val: {len(val)}, Target: {len(targetdata)}")
     print(f"🖥️  GPU Memory Pre-Loading: Alloc={torch.cuda.memory_allocated()/1e6:.1f}MB")
     
-    return (*get_dataloader(args, tr, val, targetdata), tr, val, targetdata
+    return (*get_dataloader(args, tr, val, targetdata), tr, val, targetdata)
 
 
 
