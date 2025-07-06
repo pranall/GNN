@@ -2,7 +2,7 @@ from datautil.actdata.util import *
 from datautil.util import mydataset, Nmax
 import numpy as np
 import torch
-import time
+import os
 from tqdm import tqdm
 
 class ActList(mydataset):
@@ -12,19 +12,20 @@ class ActList(mydataset):
     """
     def __init__(self, args, dataset, root_dir, people_group, group_num, 
                  transform=None, target_transform=None, pclabels=None, 
-                 pdlabels=None, shuffle_grid=True):
+                 pdlabels=None, shuffle_grid=True, precomputed_graphs=None):
         """
         Initialize dataset with enhanced graph precomputation
         """
+        # Initialize graph storage FIRST
         self.graphs = precomputed_graphs
-        if self.graphs is None:
-            self.precompute_graphs(args)
+        self.transform = transform
+        
+        # Parent class initialization
         super(ActList, self).__init__(args)
         
         self.domain_num = 0
         self.dataset = dataset
         self.task = 'cross_people'
-        self.transform = transform
         self.target_transform = target_transform
         
         # Load raw data
@@ -59,11 +60,18 @@ class ActList(mydataset):
         print(f"💻 Memory Info - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
               f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
 
-        # Enhanced graph precomputation with progress tracking
-        self.precompute_graphs(args)
+        # Only compute graphs if not provided
+        if self.graphs is None:
+            self.precompute_graphs(args)
 
     def __getitem__(self, idx):
-        return self.graphs[idx], int(self.labels[idx]), int(self.dlabels[idx]) if hasattr(self, "dlabels") else 0
+        # Return precomputed graph if available, else process on-the-fly
+        if self.graphs is not None:
+            return self.graphs[idx], int(self.labels[idx]), int(self.dlabels[idx] if hasattr(self, "dlabels") else 0)
+        elif self.transform:
+            return self.transform(self.x[idx]), int(self.labels[idx]), int(self.dlabels[idx] if hasattr(self, "dlabels") else 0)
+        else:
+            return self.x[idx], int(self.labels[idx]), int(self.dlabels[idx] if hasattr(self, "dlabels") else 0)
 
     def comb_position(self, x, cy, py, sy):
         """
@@ -89,19 +97,29 @@ class ActList(mydataset):
         """
         Optimized graph precomputation with progress tracking and memory management
         """
+        if self.transform is None:
+            self.graphs = [x_i for x_i in self.x]
+            return
+            
         print("⏳ Precomputing graphs...")
+        GRAPH_CACHE_PATH = os.path.join(args.output, 'precomputed_graphs.pt')
         
+        # Check cache first
+        if os.path.exists(GRAPH_CACHE_PATH) and not args.debug_mode:
+            print("🚀 Loading precomputed graphs from cache...")
+            self.graphs = torch.load(GRAPH_CACHE_PATH)
+            return
+            
         # Determine batch size based on available memory
         batch_size = min(256, len(self.x))  # Adjust based on your GPU memory
         
+        self.graphs = []
         if batch_size == len(self.x):
             # Process all at once if small dataset
-            self.graphs = []
             for x_i in tqdm(self.x, desc="Building graphs", unit="sample"):
-                self.graphs.append(self.transform(x_i) if self.transform else x_i)
+                self.graphs.append(self.transform(x_i))
         else:
             # Process in batches for large datasets
-            self.graphs = []
             for i in tqdm(range(0, len(self.x), batch_size), desc="Processing batches"):
                 batch = self.x[i:i+batch_size]
                 self.graphs.extend([self.transform(x_i) for x_i in batch])
@@ -111,8 +129,8 @@ class ActList(mydataset):
                     torch.cuda.empty_cache()
         
         # Save precomputed graphs
-        torch.save(self.graphs, f"{args.output}/precomputed_graphs.pt")
-        print(f"✅ Saved {len(self.graphs)} precomputed graphs")
+        torch.save(self.graphs, GRAPH_CACHE_PATH)
+        print(f"✅ Saved {len(self.graphs)} precomputed graphs to {GRAPH_CACHE_PATH}")
         
         # Final memory check
         print(f"💻 Memory After Graphs - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
@@ -121,3 +139,4 @@ class ActList(mydataset):
     def set_x(self, x):
         """Update input features"""
         self.x = x
+        self.graphs = None  # Invalidate cached graphs if features change
