@@ -55,9 +55,20 @@ class ActList(mydataset):
         # Memory check before graph computation
         print(f"💻 Memory Info - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
               f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
+                     
+        # ----------- START OF CACHING LOGIC -----------
+        self.graph_file = f"{args.output}/precomputed_graphs.pt"
+        if os.path.exists(self.graph_file):
+            print(f"🔍 Graph cache HIT ✅ — Loading from {self.graph_file}")
+            self.graphs = torch.load(self.graph_file)
+            print(f"✅ Loaded {len(self.graphs)} precomputed graphs")
+        else:
+            print("🔍 Graph cache MISS ❌")
+            self.precompute_graphs(args)
+        # ----------- END OF CACHING LOGIC -----------
 
         # Enhanced graph precomputation with progress tracking
-        self.precompute_graphs(args)
+        #self.precompute_graphs(args)
 
     def __getitem__(self, idx):
         return self.graphs[idx], int(self.labels[idx]), int(self.dlabels[idx]) if hasattr(self, "dlabels") else 0
