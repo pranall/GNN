@@ -176,21 +176,44 @@ def get_act_dataloader(args):
     source_data = combindataset(args, source_datasetlist)
     source_data = ConsistentFormatWrapper(source_data)
 
-    rate = 0.2
-    l = len(source_data)
-    indexall = np.arange(l)
+    # ---- BEGIN: Custom split ----
     np.random.seed(args.seed)
-    np.random.shuffle(indexall)
-    ted = int(l * rate)
-    indextr, indexval = indexall[ted:], indexall[:ted]
+    all_indices = np.arange(len(source_data))
+    np.random.shuffle(all_indices)
 
-    tr = SafeSubset(source_data, indextr)
-    # Only use the first 100 samples for fast debugging
-    tr = torch.utils.data.Subset(tr, range(100))
-    val = SafeSubset(source_data, indexval)
+    train_size = 4143
+    val_size = 1036
+
+    tr_indices = all_indices[:train_size]
+    val_indices = all_indices[train_size:train_size + val_size]
+
+    tr = SafeSubset(source_data, tr_indices)
+    val = SafeSubset(source_data, val_indices)
 
     targetdata = combindataset(args, target_datalist)
     targetdata = ConsistentFormatWrapper(targetdata)
+    target_indices = np.arange(len(targetdata))[:1704]
+    targetdata = SafeSubset(targetdata, target_indices)
+    # ---- END: Custom split ----
 
     print(f"Train samples: {len(tr)}, Val samples: {len(val)}, Target samples: {len(targetdata)}")
     return (*get_dataloader(args, tr, val, targetdata), tr, val, targetdata)
+
+    # rate = 0.2
+    # l = len(source_data)
+    # indexall = np.arange(l)
+    # np.random.seed(args.seed)
+    # np.random.shuffle(indexall)
+    # ted = int(l * rate)
+    # indextr, indexval = indexall[ted:], indexall[:ted]
+
+    # tr = SafeSubset(source_data, indextr)
+    # # Only use the first 100 samples for fast debugging
+    # tr = torch.utils.data.Subset(tr, range(100))
+    # val = SafeSubset(source_data, indexval)
+
+    # targetdata = combindataset(args, target_datalist)
+    # targetdata = ConsistentFormatWrapper(targetdata)
+
+    # print(f"Train samples: {len(tr)}, Val samples: {len(val)}, Target samples: {len(targetdata)}")
+    # return (*get_dataloader(args, tr, val, targetdata), tr, val, targetdata)
