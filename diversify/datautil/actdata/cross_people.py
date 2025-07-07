@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import time
 from tqdm import tqdm
+from torch_geometric.data import Data  
+import os  # Needed for file existence check
 
 class ActList(mydataset):
     """
