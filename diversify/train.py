@@ -48,10 +48,6 @@ def fix_emg_shape(x):
 
 
 def main(args):
-    if args.debug_mode:
-        cache_path = os.path.join(args.output, 'precomputed_graphs.pt')
-        if os.path.exists(cache_path):
-            os.remove(cache_path)
     set_random_seed(args.seed)
     print_environ()
     print(print_args(args, []))
@@ -71,9 +67,6 @@ def main(args):
     # Debug first batch
     batch = next(iter(train_loader))
     x, y, d = batch
-    # Add this (2/3)
-    print(f"\n🖥️  GPU Memory Post-First-Batch: Alloc={torch.cuda.memory_allocated()/1e6:.1f}MB | "
-          f"Cache={torch.cuda.memory_reserved()/1e6:.1f}MB")
     print("🔎 BATCH X type     :", type(x))
     if hasattr(x, 'x'):
         print(" x.x.shape          :", x.x.shape)
@@ -87,9 +80,7 @@ def main(args):
     # Initialize algorithm
     AlgoClass = alg.get_algorithm_class(args.algorithm)
     algorithm = AlgoClass(args).to(device)
-    # Add this (1/3)
-    print(f"\n🖥️  GPU Memory Post-Model-Init: Alloc={torch.cuda.memory_allocated()/1e6:.1f}MB | "
-          f"Cache={torch.cuda.memory_reserved()/1e6:.1f}MB")
+
     # GNN integration
     if args.use_gnn:
         print("Initializing GNN feature extractor...")
@@ -140,8 +131,7 @@ def main(args):
             print(f"[⏱️] Feature Batch {batch_idx}: {time.time()-t0:.3f}s")
             if batch_idx >= 4: break  # Only time 5 batches for now
         print(f"[⏱️] Total feature update loop: {time.time()-t_feature_update:.2f}s")
-        print(f"\n🖥️  GPU Memory Post-Epoch-{epoch}: Alloc={torch.cuda.memory_allocated()/1e6:.1f}MB | "
-              f"Cache={torch.cuda.memory_reserved()/1e6:.1f}MB")
+
         # 2) Domain‐discriminator update
         print("  Domain-discriminator update loop...", flush=True)
         t_domain_update = time.time()
