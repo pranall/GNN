@@ -3,6 +3,7 @@ from datautil.util import mydataset, Nmax
 import numpy as np
 import torch
 import time
+from tqdm import tqdm
 
 class ActList(mydataset):
     """
@@ -13,7 +14,7 @@ class ActList(mydataset):
                  transform=None, target_transform=None, pclabels=None, 
                  pdlabels=None, shuffle_grid=True):
         """
-        Initialize dataset
+        Initialize dataset with enhanced graph precomputation
         """
         super(ActList, self).__init__(args)
         
@@ -51,11 +52,12 @@ class ActList(mydataset):
         self.tdlabels = np.ones(self.labels.shape) * group_num
         self.dlabels = np.ones(self.labels.shape) * (group_num - Nmax(args, group_num))
 
-        # Precompute all graphs upfront
-        print("⏳ Precomputing graphs...")
-        self.graphs = [self.transform(x_i) if self.transform else x_i for x_i in self.x]
-        torch.save(self.graphs, f"{args.output}/precomputed_graphs.pt")
-        print(f"✅ Saved {len(self.graphs)} precomputed graphs")
+        # Memory check before graph computation
+        print(f"💻 Memory Info - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
+              f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
+
+        # Enhanced graph precomputation with progress tracking
+        self.precompute_graphs(args)
 
     def __getitem__(self, idx):
         return self.graphs[idx], int(self.labels[idx]), int(self.dlabels[idx]) if hasattr(self, "dlabels") else 0
@@ -79,6 +81,39 @@ class ActList(mydataset):
                 self.x = np.vstack((self.x, ttx))
                 self.labels = np.hstack((self.labels, ttcy))
             print(f"    → After adding: self.x.shape = {self.x.shape}, self.labels.shape = {self.labels.shape}")
+
+    def precompute_graphs(self, args):
+        """
+        Optimized graph precomputation with progress tracking and memory management
+        """
+        print("⏳ Precomputing graphs...")
+        
+        # Determine batch size based on available memory
+        batch_size = min(256, len(self.x))  # Adjust based on your GPU memory
+        
+        if batch_size == len(self.x):
+            # Process all at once if small dataset
+            self.graphs = []
+            for x_i in tqdm(self.x, desc="Building graphs", unit="sample"):
+                self.graphs.append(self.transform(x_i) if self.transform else x_i)
+        else:
+            # Process in batches for large datasets
+            self.graphs = []
+            for i in tqdm(range(0, len(self.x), batch_size), desc="Processing batches"):
+                batch = self.x[i:i+batch_size]
+                self.graphs.extend([self.transform(x_i) for x_i in batch])
+                
+                # Optional: Clear memory if needed
+                if i % (10*batch_size) == 0:  # Every 10 batches
+                    torch.cuda.empty_cache()
+        
+        # Save precomputed graphs
+        torch.save(self.graphs, f"{args.output}/precomputed_graphs.pt")
+        print(f"✅ Saved {len(self.graphs)} precomputed graphs")
+        
+        # Final memory check
+        print(f"💻 Memory After Graphs - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
+              f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
 
     def set_x(self, x):
         """Update input features"""
