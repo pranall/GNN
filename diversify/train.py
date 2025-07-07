@@ -118,22 +118,22 @@ def main(args):
     print(">>> ABOUT TO START EPOCH LOOP", flush=True)
     for epoch in range(1, args.max_epoch+1):
         start_time = time.time()
-        print(f"--- EPOCH {epoch} START ---", flush=True)
+        #print(f"--- EPOCH {epoch} START ---", flush=True)
 
         # 1) Feature update
-        print("  Feature update loop...", flush=True)
+        #print("  Feature update loop...", flush=True)
         t_feature_update = time.time()
         for batch_idx, (x, y, d) in enumerate(train_loader):
             t0 = time.time()
             x, y, d = x.to(device), y.to(device), d.to(device)
             res = algorithm.update_a([x, y, d, y, d], optimizer)
             logs['class_loss'].append(res['class'])
-            print(f"[⏱️] Feature Batch {batch_idx}: {time.time()-t0:.3f}s")
+            #print(f"[⏱️] Feature Batch {batch_idx}: {time.time()-t0:.3f}s")
             if batch_idx >= 4: break  # Only time 5 batches for now
-        print(f"[⏱️] Total feature update loop: {time.time()-t_feature_update:.2f}s")
+        #print(f"[⏱️] Total feature update loop: {time.time()-t_feature_update:.2f}s")
 
         # 2) Domain‐discriminator update
-        print("  Domain-discriminator update loop...", flush=True)
+        #print("  Domain-discriminator update loop...", flush=True)
         t_domain_update = time.time()
         for batch_idx, (x, y, d) in enumerate(train_loader):
             t0 = time.time()
@@ -142,22 +142,22 @@ def main(args):
             logs['dis_loss'].append(res['dis'])
             logs['ent_loss'].append(res['ent'])
             logs['total_loss'].append(res['total'])
-            print(f"[⏱️] Domain Batch {batch_idx}: {time.time()-t0:.3f}s")
+            #print(f"[⏱️] Domain Batch {batch_idx}: {time.time()-t0:.3f}s")
             if batch_idx >= 4: break
-        print(f"[⏱️] Total domain-discriminator loop: {time.time()-t_domain_update:.2f}s")
+        #print(f"[⏱️] Total domain-discriminator loop: {time.time()-t_domain_update:.2f}s")
 
         # 3) Domain‐invariant feature learning
-        print("  Domain-invariant feature learning loop...", flush=True)
+        #print("  Domain-invariant feature learning loop...", flush=True)
         t_inv_update = time.time()
         for batch_idx, (x, y, _) in enumerate(train_loader):
             t0 = time.time()
             x, y = x.to(device), y.to(device)
             _ = algorithm.update((x, y), optimizer)
-            print(f"[⏱️] Invariant Batch {batch_idx}: {time.time()-t0:.3f}s")
+            #print(f"[⏱️] Invariant Batch {batch_idx}: {time.time()-t0:.3f}s")
             if batch_idx >= 4: break
-        print(f"[⏱️] Total domain-invariant loop: {time.time()-t_inv_update:.2f}s")
+        #print(f"[⏱️] Total domain-invariant loop: {time.time()-t_inv_update:.2f}s")
 
-        print(f"--- EPOCH {epoch} END ---", flush=True)
+        #print(f"--- EPOCH {epoch} END ---", flush=True)
 
         # Evaluation
         acc_fn = modelopera.accuracy
