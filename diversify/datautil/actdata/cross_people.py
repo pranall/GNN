@@ -3,8 +3,7 @@ from datautil.util import mydataset, Nmax
 import numpy as np
 from torch_geometric.data import Data
 import torch
-import os
-from tqdm import tqdm
+import time
 
 class ActList(mydataset):
     """
@@ -13,20 +12,16 @@ class ActList(mydataset):
     """
     def __init__(self, args, dataset, root_dir, people_group, group_num, 
                  transform=None, target_transform=None, pclabels=None, 
-                 pdlabels=None, shuffle_grid=True, precomputed_graphs=None):
+                 pdlabels=None, shuffle_grid=True):
         """
-        Initialize dataset with enhanced graph precomputation
+        Initialize dataset
         """
-        # Initialize graph storage FIRST
-        self.graphs = precomputed_graphs
-        self.transform = transform
-        
-        # Parent class initialization
         super(ActList, self).__init__(args)
         
         self.domain_num = 0
         self.dataset = dataset
         self.task = 'cross_people'
+        self.transform = transform
         self.target_transform = target_transform
         
         # Load raw data
@@ -57,22 +52,14 @@ class ActList(mydataset):
         self.tdlabels = np.ones(self.labels.shape) * group_num
         self.dlabels = np.ones(self.labels.shape) * (group_num - Nmax(args, group_num))
 
-        # Memory check before graph computation
-        print(f"💻 Memory Info - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
-              f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
-
-        # Only compute graphs if not provided
-        if self.graphs is None:
-            self.precompute_graphs(args)
+        # Precompute all graphs upfront
+        print("⏳ Precomputing graphs...")
+        self.graphs = [self.transform(x_i) if self.transform else x_i for x_i in self.x]
+        torch.save(self.graphs, f"{args.output}/precomputed_graphs.pt")
+        print(f"✅ Saved {len(self.graphs)} precomputed graphs")
 
     def __getitem__(self, idx):
-        # Return precomputed graph if available, else process on-the-fly
-        if self.graphs is not None:
-            return self.graphs[idx], int(self.labels[idx]), int(self.dlabels[idx] if hasattr(self, "dlabels") else 0)
-        elif self.transform:
-            return self.transform(self.x[idx]), int(self.labels[idx]), int(self.dlabels[idx] if hasattr(self, "dlabels") else 0)
-        else:
-            return self.x[idx], int(self.labels[idx]), int(self.dlabels[idx] if hasattr(self, "dlabels") else 0)
+        return self.graphs[idx], int(self.labels[idx]), int(self.dlabels[idx]) if hasattr(self, "dlabels") else 0
 
     def comb_position(self, x, cy, py, sy):
         """
@@ -94,17 +81,6 @@ class ActList(mydataset):
                 self.labels = np.hstack((self.labels, ttcy))
             print(f"    → After adding: self.x.shape = {self.x.shape}, self.labels.shape = {self.labels.shape}")
 
-    def precompute_graphs(self, args):
-        print("⏳ Transforming to graphs...")
-        self.graphs = []
-        for x_i in self.x:  # x_i shape: [8, 1, 200]
-            # Simple transformation to [200, 8]
-            graph = Data(x=x_i.squeeze(1).T, 
-                  edge_index=torch.empty((2,0)))  # Empty edges
-            self.graphs.append(graph)
-        print(f"✅ Done. Example graph: {self.graphs[0]}")
-
     def set_x(self, x):
         """Update input features"""
         self.x = x
-        self.graphs = None  # Invalidate cached graphs if features change
