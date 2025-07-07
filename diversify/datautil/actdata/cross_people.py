@@ -106,7 +106,10 @@ class ActList(mydataset):
             # Process all at once if small dataset
             self.graphs = []
             for x_i in tqdm(self.x, desc="Building graphs", unit="sample"):
-                self.graphs.append(self.transform(x_i) if self.transform else x_i)
+                #self.graphs.append(self.transform(x_i) if self.transform else x_i)
+                x_in = x_i.squeeze(1)  # [8, 1, 200] -> [8, 200]
+                self.graphs.append(self.transform(x_in) if self.transform else x_in)
+
         else:
             # Process in batches for large datasets
             self.graphs = []
