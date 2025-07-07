@@ -7,13 +7,11 @@ class TemporalGCN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, graph_builder=None):
         super().__init__()
         self.gcn1       = GCNConv(input_dim,  hidden_dim)
-        #self.gcn1 = GCNConv(200, hidden_dim) 
         self.gcn2       = GCNConv(hidden_dim, hidden_dim)
         self.classifier = nn.Linear(hidden_dim, output_dim)
         self.in_features = output_dim
 
     def forward(self, data):
-        print(f"\n🔥 Input shape: {data.x.shape} | Edge index: {data.edge_index.shape}")
         x, edge_index, batch = data.x, data.edge_index, data.batch
 
         # if x has extra dims (e.g. [N,1,200]), flatten to [N,200]
