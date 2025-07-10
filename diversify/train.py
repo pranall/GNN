@@ -173,6 +173,7 @@ def main(args):
         print(f"Epoch {epoch}/{args.max_epoch} — "
               f"Train: {logs['train_acc'][-1]:.4f}, "
               f"Val: {logs['val_acc'][-1]:.4f}, "
+              f"Test: {logs['test_acc'][-1]:.4f}, "
               f"Time: {time.time()-start_time:.1f}s")
 
     print(f"Training complete. Best validation accuracy: {best_val:.4f}")
