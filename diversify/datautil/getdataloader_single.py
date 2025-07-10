@@ -154,7 +154,25 @@ def get_act_dataloader(args):
     targetdata = ConsistentFormatWrapper(targetdata)
     target_indices = np.arange(len(targetdata))  # use all
     targetdata = SafeSubset(targetdata, target_indices)
+    # ---- BEGIN: Custom split ----
+    np.random.seed(args.seed)
+    all_indices = np.arange(len(source_data))
+    np.random.shuffle(all_indices)
 
+    train_size = 4143
+    val_size = 1036
+
+    tr_indices = all_indices[:train_size]
+    val_indices = all_indices[train_size:train_size + val_size]
+
+    tr = SafeSubset(source_data, tr_indices)
+    val = SafeSubset(source_data, val_indices)
+
+    targetdata = combindataset(args, target_datalist)
+    targetdata = ConsistentFormatWrapper(targetdata)
+    target_indices = np.arange(len(targetdata))[:1704]
+    targetdata = SafeSubset(targetdata, target_indices)
+    # ---- END: Custom split ----
     print(f"Train samples: {len(tr)}, Val samples: {len(val)}, Target samples: {len(targetdata)}")
     return (*get_dataloader(args, tr, val, targetdata), tr, val, targetdata)
 
