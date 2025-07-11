@@ -28,11 +28,11 @@ class ActList(mydataset):
         
         # Load raw data
         x, cy, py, sy = loaddata_from_numpy(self.dataset, self.task, root_dir)
-        print("🔎 Raw data shapes:")
-        print("  x:", x.shape)
-        print("  cy:", cy.shape)
-        print("  py:", py.shape)
-        print("  sy:", sy.shape)
+        #print("🔎 Raw data shapes:")
+        #print("  x:", x.shape)
+        #print("  cy:", cy.shape)
+        #print("  py:", py.shape)
+        #print("  sy:", sy.shape)
         
         # Flatten people group if nested
         self.people_group = [p for group in people_group for p in (group if isinstance(group, list) else [group])]
@@ -41,12 +41,12 @@ class ActList(mydataset):
         
         # Combine data from different people and positions
         self.comb_position(x, cy, py, sy)
-        print("✅ After comb_position: self.x.shape =", self.x.shape, "self.labels.shape =", self.labels.shape)
+        #print("✅ After comb_position: self.x.shape =", self.x.shape, "self.labels.shape =", self.labels.shape)
         
         # Expand dims and convert to tensor
         self.x = self.x[:, :, np.newaxis, :]  # [samples, channels, 1, timesteps]
         self.x = torch.tensor(self.x).float()
-        print(f"🎯 FINAL ActList sample count: {self.x.shape[0]}")
+        #print(f"🎯 FINAL ActList sample count: {self.x.shape[0]}")
         
         # Pseudo-labels and domain labels
         self.pclabels = pclabels if pclabels is not None else np.ones(self.labels.shape) * (-1)
@@ -55,17 +55,17 @@ class ActList(mydataset):
         self.dlabels = np.ones(self.labels.shape) * (group_num - Nmax(args, group_num))
 
         # Memory check before graph computation
-        print(f"💻 Memory Info - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
-              f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
+        #print(f"💻 Memory Info - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
+              #f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
                      
         # ----------- START OF CACHING LOGIC -----------
         self.graph_file = f"{args.output}/precomputed_graphs.pt"
         if os.path.exists(self.graph_file):
-            print(f"🔍 Graph cache HIT ✅ — Loading from {self.graph_file}")
+            print(f"Graph cache HIT — Loading from {self.graph_file}")
             self.graphs = torch.load(self.graph_file)
-            print(f"✅ Loaded {len(self.graphs)} precomputed graphs")
+            print(f" Loaded {len(self.graphs)} precomputed graphs")
         else:
-            print("🔍 Graph cache MISS ❌")
+            print("🔍 Graph cache MISS ")
             self.precompute_graphs(args)
         # ----------- END OF CACHING LOGIC -----------
 
@@ -128,7 +128,7 @@ class ActList(mydataset):
         print(f"✅ Saved {len(self.graphs)} precomputed graphs")
         
         # Final memory check
-        print(f"💻 Memory After Graphs - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
+        #print(f"💻 Memory After Graphs - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
               f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
 
     def set_x(self, x):
