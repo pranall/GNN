@@ -32,20 +32,20 @@ def act_train():
 def act_to_graph_transform(args):
     def print_before_permute(x):
         if not hasattr(print_before_permute, "printed"):
-            print("BEFORE SHAPE CHANGE, x.shape:", x.shape)
+            #print("BEFORE SHAPE CHANGE, x.shape:", x.shape)
             print_before_permute.printed = True
         return x
 
     def print_after_permute(x):
         if not hasattr(print_after_permute, "printed"):
-            print("AFTER SHAPE CHANGE, x.shape:", x.shape)
+            #print("AFTER SHAPE CHANGE, x.shape:", x.shape)
             print_after_permute.printed = True
         return x
 
     def _to_graph(x):
         #debug_timer("START _to_graph")
         if not hasattr(_to_graph, "printed"):
-            print("IN _to_graph, input x.shape:", x.shape)
+            #print("IN _to_graph, input x.shape:", x.shape)
             _to_graph.printed = True
         if isinstance(x, torch.Tensor):
             x = x.float()
