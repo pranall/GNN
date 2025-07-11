@@ -483,7 +483,7 @@ Inspired by [Diversify: Domain Generalization via Diversity Regularization](http
   year={2023}
 }
 
-Thanks to Rishabh Gupta for contributing some code for this project. Please check his GitHub repo: (https://github.com/rishabharizona/gnnintegrated.git)
+Thanks to Rishabh Gupta for contributing some code for this project. Please check his GitHub repo: https://github.com/rishabharizona/gnnintegrated.git)
 ```
 ## Contact
 
