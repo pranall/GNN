@@ -182,7 +182,7 @@ if __name__ == '__main__':
     args = get_args()
     args.N_WORKERS = 2
     args.graph_threshold = -1.0
-    print(f"[DEBUG] Using graph_threshold: {args.graph_threshold}")
+    #print(f"[DEBUG] Using graph_threshold: {args.graph_threshold}")
     if not hasattr(args, 'use_gnn'):
         args.use_gnn = False
     if args.use_gnn:
