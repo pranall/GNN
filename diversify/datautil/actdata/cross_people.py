@@ -129,7 +129,7 @@ class ActList(mydataset):
         
         # Final memory check
         #print(f"💻 Memory After Graphs - Allocated: {torch.cuda.memory_allocated()/1024**2:.2f}MB | "
-              f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
+              #f"Reserved: {torch.cuda.memory_reserved()/1024**2:.2f}MB")
 
     def set_x(self, x):
         """Update input features"""
