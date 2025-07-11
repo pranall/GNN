@@ -82,7 +82,7 @@ class ActList(mydataset):
         for i, person_id in enumerate(self.people_group):
             person_idx = np.where(py == person_id)[0]
             tx, tcy, tsy = x[person_idx], cy[person_idx], sy[person_idx]
-            print(f"  👤 Person {person_id} initial samples: {tx.shape[0]}")
+            #print(f"  👤 Person {person_id} initial samples: {tx.shape[0]}")
             valid_idxs = np.isin(tsy, self.position)
             if not np.any(valid_idxs):
                 print(f"Skipping person {person_id} due to no valid sensor positions.")
@@ -93,7 +93,7 @@ class ActList(mydataset):
             else:
                 self.x = np.vstack((self.x, ttx))
                 self.labels = np.hstack((self.labels, ttcy))
-            print(f"    → After adding: self.x.shape = {self.x.shape}, self.labels.shape = {self.labels.shape}")
+            #print(f"    → After adding: self.x.shape = {self.x.shape}, self.labels.shape = {self.labels.shape}")
 
     def precompute_graphs(self, args):
         """
