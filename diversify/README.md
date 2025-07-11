@@ -209,7 +209,8 @@ However, this Github Repo is well equipped with good and robust pipeline which h
 
 Below are the pictures which depict the outcomes in the logs for more clear understanding of the pipeline and how GNNs actually worked on EMG datset. Most of them were print statements which are still present in the code, but right now are commented out so as to keep the print log clean. The output explanations are done in parts.
 
-1) Output 1 
+1) Output 1
+   
 ![GNNOutput1](https://github.com/user-attachments/assets/484a7a9c-2db2-466f-ae0f-10cae2702aca)
 
 Explanation: This output is a debug log snapshot showing your current environment setup and a key configuration parameter:
@@ -233,6 +234,7 @@ Explanation: This output is a debug log snapshot showing your current environmen
 **In brief:** This confirms your training environment details and that your graph threshold is disabled, which is essential for reproducibility and debugging.
 
 2) Output 2
+   
 ![GNNOutput2](https://github.com/user-attachments/assets/d20210dc-4563-46dd-8d0e-f3002d164e13)
 
 Explanation: This output shows the key **training configuration and hyperparameters** for your GNN model run. Here’s a brief explanation:
@@ -262,6 +264,7 @@ Explanation: This output shows the key **training configuration and hyperparamet
 **In short:** This block lists all essential training hyperparameters controlling model architecture, optimization, domain adaptation, and data used in your GNN experiment.
 
 3) Output 3
+   
 ![GNNOutput3](https://github.com/user-attachments/assets/23997804-7898-41f9-9437-0db0f6af6afd)
 
 Explanation: This output displays additional configuration settings related to data loading, GNN-specific parameters, and environment setup for your training run:
