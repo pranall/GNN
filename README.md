@@ -482,9 +482,11 @@ Inspired by [Diversify: Domain Generalization via Diversity Regularization](http
   booktitle={International Conference on Learning Representations},
   year={2023}
 }
+
+Thanks to Rishabh Gupta for contributing some code for this project. Please check his GitHub repo: (https://github.com/rishabharizona/gnnintegrated.git)
 ```
 ## Contact
 
 ```
-If you find this information useful or would like to propose any suggestions feel free to drop an email here: pranal.a.gaikwad@gmail.com
+If you find this information useful or would like to propose any suggestions feel free to drop an email here: (pranal.a.gaikwad@gmail.com)
 ```
