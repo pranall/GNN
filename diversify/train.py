@@ -67,15 +67,15 @@ def main(args):
     # Debug first batch
     batch = next(iter(train_loader))
     x, y, d = batch
-    print("🔎 BATCH X type     :", type(x))
-    if hasattr(x, 'x'):
-        print(" x.x.shape          :", x.x.shape)
-        print(" x.edge_index.shape:", x.edge_index.shape)
-        print(" x.batch.shape      :", x.batch.shape)
-    else:
-        print(" raw tensor shape   :", x.shape)
-    print(" labels y.shape     :", y.shape)
-    print(" domains d.shape    :", d.shape)
+    #print("🔎 BATCH X type     :", type(x))
+    #if hasattr(x, 'x'):
+        #print(" x.x.shape          :", x.x.shape)
+        #print(" x.edge_index.shape:", x.edge_index.shape)
+        #print(" x.batch.shape      :", x.batch.shape)
+    #else:
+        #print(" raw tensor shape   :", x.shape)
+    #print(" labels y.shape     :", y.shape)
+    #print(" domains d.shape    :", d.shape)
 
     # Initialize algorithm
     AlgoClass = alg.get_algorithm_class(args.algorithm)
@@ -104,7 +104,7 @@ def main(args):
         demo_data = Data(x=demo_x, edge_index=demo_e, batch=demo_b)
         with torch.no_grad():
             demo_out = algorithm.featurizer(demo_data)
-        print("✅ Quick GNN smoke test output shape:", demo_out.shape)
+        #print("✅ Quick GNN smoke test output shape:", demo_out.shape)
 
 
     algorithm.train()
