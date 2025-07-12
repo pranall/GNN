@@ -76,7 +76,17 @@ This GitHub repo consists of 8 directories and 31 files which are presented belo
     ├── params.py              # Experiment parameters and argument parsing
     └── util.py                # Miscellaneous helper utilities
 ```
-Extra output files are later on added for reference. These files are get_model.pth, err.txt and precomputed_graphs.pt which store the data as the training starts.
+Extra output files are later on added for reference. These files are get_model.pth and err.txt which store the data as the training starts.
+
+## Precomputed Graphs Data
+
+Due to size limits, the `precomputed_graphs.pt` file is hosted externally.
+
+Download it here:  
+[Download precomputed_graphs.pt](https://drive.google.com/uc?export=download&id=14XdrJeH2FCi7rdJtUgdK815I-JztBXb2)
+
+**Note:** Place this file in the `./data/train_output/` directory before running training.
+
 
 ### How to Run
 
