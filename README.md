@@ -182,6 +182,15 @@ Table 4: Justifications for Design Choices
 | Extensive documentation       | To clearly show every step, decision, and challenge for future readers/reviewers         |
 | Including pipeline diagram    | For clarity in presentations and reports; makes workflow and data flow easily digestible |
 
+Table 5: Summary Table
+
+| Aspect         | EMG Data          | Graph Data            | EMG as Graph         |
+| -------------- | ----------------- | --------------------- | -------------------- |
+| Structure      | Spatio-temporal   | Irregular, relational | Artificial, regular  |
+| Channels       | Fixed, parallel   | Arbitrary, variable   | Fixed                |
+| Edges          | None (parallel)   | Explicit, meaningful  | Forced/arbitrary     |
+| Best Model     | CNN, RNN          | GNN                   | None (GNN struggles) |
+| Research Value | Clinical, gesture | Social, molecules     | Experimental         |
 
 **Conclusion: GNNs simply aren’t a good fit for EMG time-series data. Here’s why:**
 
