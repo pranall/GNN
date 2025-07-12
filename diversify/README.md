@@ -76,7 +76,7 @@ This GitHub repo consists of 8 directories and 31 files which are presented belo
     ├── params.py              # Experiment parameters and argument parsing
     └── util.py                # Miscellaneous helper utilities
 ```
-
+Extra output files are later on added for reference. These files are get_model.pth, err.txt and precomputed_graphs.pt which store the data as the training starts.
 
 ### How to Run
 
@@ -163,10 +163,10 @@ Table 2: Training Regimen & Compute Analysis.
 | Training (5 epochs)      | \~1.5 hours                                                            |
 | Training (15 epochs)     | \~4.5 hours (estimate)                                                 |
 
-It must be noted that since the accuracy is stagnant, running on more epochs will only waste the computational resources. Hence the epochs numbers are set low. Also since the computation required is very heavy, Colab either signs you out or disconnects due to Colab usage limits which is a similar case with JetStream2
+It must be noted that since the accuracy is stagnant, running on more epochs will only waste the computational resources. Hence the epochs numbers are set low. Also since the computation required is very heavy, Colab either signs you out or disconnects due to Colab usage limits which is a similar case with JetStream2. It must be noted that the training does not even reach the 2nd environment for 10 epochs cause of GPU limits in colab and also sign out issues despite the epochs set so low. It is also not advisable to pay for extra GPU units in Colab cause the accuracy does not increase will leads to wastage of money, time and resources. 
 
 Table 3: Limitation Analysis
-| **Aspect**             | **Observation / Challenge**                                                                     | **Mitigation / Notes**                                |
+| **Aspect**             | **Observation**                                                                                 | **Mitigation**                           
 | ---------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | **Accuracy**           | GNN achieved 16-17% accuracy (vs. 80%+ for CNN baseline).                                       | GNNs not optimal for this EMG dataset’s structure.    |
 | **Data Shape**         | EMG better fits regular grid (suitable for CNNs), not an inherent graph structure.              | Justified as a research experiment.                   |
@@ -182,6 +182,15 @@ Table 4: Justifications for Design Choices
 | Extensive documentation       | To clearly show every step, decision, and challenge for future readers/reviewers         |
 | Including pipeline diagram    | For clarity in presentations and reports; makes workflow and data flow easily digestible |
 
+Table 5: Summary Table
+
+| Aspect         | EMG Data          | Graph Data            | EMG as Graph         |
+| -------------- | ----------------- | --------------------- | -------------------- |
+| Structure      | Spatio-temporal   | Irregular, relational | Artificial, regular  |
+| Channels       | Fixed, parallel   | Arbitrary, variable   | Fixed                |
+| Edges          | None (parallel)   | Explicit, meaningful  | Forced/arbitrary     |
+| Best Model     | CNN, RNN          | GNN                   | None (GNN struggles) |
+| Research Value | Clinical, gesture | Social, molecules     | Experimental         |
 
 **Conclusion: GNNs simply aren’t a good fit for EMG time-series data. Here’s why:**
 
@@ -198,16 +207,16 @@ Table 4: Justifications for Design Choices
 ---
 ### Technical Section.
 This section deeply explains the technical challenges faced while coding. This also serves as a guide of 'if you ever want to try to run GNN on EMG dataset, do not make these mistakes.' 
-Top issues faced while preparing this code and Repo:
-1) Import errors
-2) Environmental issues (mismatch of environments as Pytorch is used and ut requires the latest updated version to support graphs)
-3) Shape mismatchs [EMG datset is [8,1,200] but for graph we had to sueeze out 1 and reverse it to [200,8] for smoother graph construction.
-4) Pre computing graphs
+Top issues faced while preparing this code and repo:
+1) Import errors.
+2) Environmental issues (mismatch of environments as Pytorch is used and ut requires the latest updated version to support graphs).
+3) Shape mismatchs [EMG dataset is [8,1,200] but for graph we had to squeeze out 1 and reverse it to [200,8] for smoother graph construction.
+4) Pre computing graphs.
 5) Trying to adjust Cache so as to not waste the resources.
    
-However, this Github Repo is well equipped with good and robust pipeline which has eliminated stabilized all the above issues which enable the script to run very smoothly.
+However, this Github Repo is well equipped with good and robust pipeline which has stabilized all the above issues which enable the script to run very smoothly.
 
-Below are the pictures which depict the outcomes in the logs for more clear understanding of the pipeline and how GNNs actually worked on EMG datset. Most of them were print statements which are still present in the code, but right now are commented out so as to keep the print log clean. The output explanations are done in parts.
+Below are the pictures which depict the outcomes in the logs for more clear understanding of the pipeline and how GNNs actually worked on EMG datset. An .ipynb file is also uploaded. As stated above due to high computation resources and Colab time out issues, the training abruptly ends at Environment 2 for 10 epochs. Most of the statements in the print logs are print statements which are still present in the code, but right now are commented out so as to keep the print log clean. The output explanations are done in parts.
 
 1) Output 1
    
@@ -228,9 +237,6 @@ Explanation: This output is a debug log snapshot showing your current environmen
   * cuDNN 8700 (NVIDIA’s deep learning library)
   * NumPy 1.24.3 (numerical computing)
   * PIL 11.2.1 (image processing)
-
-* The separator line `===========================================` marks the end of this info block.
-
 **In brief:** This confirms your training environment details and that your graph threshold is disabled, which is essential for reproducibility and debugging.
 
 2) Output 2
@@ -465,10 +471,9 @@ Explanation: A snippet of traning log whoch completed all 5 epochs.
 
 Explanation: A snippet of traning log whoch completed all 15 epochs.
 
-It must be noted that since one epoch took around 18 minutes to complete, higher epochs like 10,15 and 20 epochs took enormous time to compute which is why the same .ipynb file was run simultaneously in three different colab with one including the virtual JetStream2 Colab whoch posed as a drawback since all the logs are not in one single .ipynb file. 
-Usage of less epochs is highly recommended. 
+It must be noted that since one epoch took around 18 minutes to complete, higher epochs like 10,15 and 20 epochs took enormous time to compute which is why the same .ipynb file was run simultaneously in three different colab with one including the virtual JetStream2 Colab which posed as a drawback since all the logs are not in one single .ipynb file. Usage of less epochs is highly recommended. 
 
-This README file offers a full-proof guide on how a GNN is ran on EMG dataset. It must be noted that in this case, neither GNN is incorrect and neither is EMG dataset (it is well processed and is just fine). The key issue lies their individual architecture. In the most simple terms, GNN and EMG are like oil and water; no matter how much we mix them, they can never be mixed due to their properties. 
+This README file offers a full-proof guide on how a GNN is ran on EMG dataset. It must be noted that in this case, neither GNN as a model is incorrect and neither is EMG dataset (it is well processed and is just fine). The key issue lies their individual architecture. In the most simple terms, GNN and EMG are like oil and water; no matter how much we mix them, they can never be mixed due to their properties. 
 
 
 ## Acknowledgement and References 
@@ -482,9 +487,11 @@ Inspired by [Diversify: Domain Generalization via Diversity Regularization](http
   booktitle={International Conference on Learning Representations},
   year={2023}
 }
+
+Thanks to Rishabh Gupta for contributing some code for this project. Please check his GitHub repo: https://github.com/rishabharizona/gnnintegrated.git)
 ```
 ## Contact
 
 ```
-If you find this information useful or would like to propose any suggestions feel free to drop an email here: pranal.a.gaikwad@gmail.com
+If you find this information useful or would like to propose any suggestions feel free to drop an email here: (pranal.a.gaikwad@gmail.com)
 ```
