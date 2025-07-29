@@ -485,6 +485,7 @@ It must be noted that since one epoch took around 18 minutes to complete, higher
 
 This README file offers a full-proof guide on how a GNN is ran on EMG dataset. It must be noted that in this case, neither GNN as a model is incorrect and neither is EMG dataset (it is well processed and is just fine). The key issue lies their individual architecture. In the most simple terms, GNN and EMG are like oil and water; no matter how much we mix them, they can never be mixed due to their properties. 
 
+Note: This repo reflects actual work done and maintained by me. Any extensions/fixes mentioned by others are built on top of this groundwork.
 
 ## Acknowledgement and References 
 
@@ -497,6 +498,8 @@ Inspired by [Diversify: Domain Generalization via Diversity Regularization](http
   booktitle={International Conference on Learning Representations},
   year={2023}
 }
+
+All contributions in this repository reflect my own work and collaboration with Rishabh Gupta. Any external forks or references that exclude this base work misrepresent the actual contributors.
 
 Thanks to Rishabh Gupta for contributing some code for this project. Please check his GitHub repo: https://github.com/rishabharizona/gnnintegrated.git)
 ```
